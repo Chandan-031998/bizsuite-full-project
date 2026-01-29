@@ -112,7 +112,7 @@ const parseBool01 = (v) => {
 
 const toNumberOrNull = (v) => {
   if (v === undefined || v === null) return null;
-  const n = Number(v)
+  const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
 
@@ -121,9 +121,7 @@ const toIsoOrNull = (v) => {
   if (v === null) return null; // explicit null
   const s = String(v).trim();
   if (!s) return null; // empty => clear
-  // allow YYYY-MM-DD or ISO; store first 10 chars if ISO
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  // if something else arrives, keep it as-is (don’t crash)
   return s;
 };
 
@@ -177,7 +175,7 @@ const normalizeItem = (item, fallbackDescription = "Services") => {
   return { description, quantity, unitPrice, accountId: item.account_id || null };
 };
 
-/* ---------------- PDF Renderer (sign-ready, NO OVERLAP) ---------------- */
+/* ---------------- PDF Renderer (Single Page, Compact, Professional) ---------------- */
 function drawInvoicePDF(doc, payload) {
   const {
     invoiceNo,
@@ -188,16 +186,26 @@ function drawInvoicePDF(doc, payload) {
     billToAddress,
     items,
     subtotal,
-    tax,
+    cgst,
+    sgst,
     total,
-    received,
-    balance,
   } = payload;
 
-  const COMPANY = { name: "Vertex Software", tagline: "Software Development & Services" };
+  const COMPANY = {
+    name: "Vertex Software",
+    tagline: "Software Development & Services",
+    gstin: "GSTIN: 29CNGPC2359M1ZN",
+    addressLines: [
+      "2ND AND 3RD FLOOR,",
+      "No. 472/7, Balaji Arcade,",
+      "20th L Cross Road,",
+      "Bengaluru, Bengaluru Urban,",
+      "Karnataka – 560034",
+    ],
+  };
 
   const BANK = {
-    accountName: "Vertex Software",
+    accountName: "Chandan G", // ✅ changed only account name
     bankName: "Axis Bank",
     accountNumber: "922010030814228",
     branch: "Mysore",
@@ -229,17 +237,19 @@ function drawInvoicePDF(doc, payload) {
 
   const pageW = doc.page.width;
   const pageH = doc.page.height;
-  const M = { L: 55, T: 42, R: 55, B: 42 };
+
+  // Compact margins (still professional)
+  const M = { L: 52, T: 38, R: 52, B: 38 };
   const contentW = pageW - M.L - M.R;
 
-  const FOOTER_BAR_H = 18;
-  const FOOTER_ROW_H = 26;
+  const FOOTER_BAR_H = 16;
+  const FOOTER_ROW_H = 24;
   const FOOTER_H = FOOTER_ROW_H + FOOTER_BAR_H;
   const footerTopY = pageH - M.B - FOOTER_H;
 
-  const GAP_SM = 10;
-  const GAP_MD = 16;
-  const GAP_LG = 22;
+  const GAP_SM = 8;
+  const GAP_MD = 12;
+  const GAP_LG = 14;
 
   const logoPath = resolveLogoPath();
   const signaturePath = resolveSignaturePath();
@@ -255,10 +265,12 @@ function drawInvoicePDF(doc, payload) {
     doc.save();
     doc.opacity(0.06);
     if (logoPath) {
-      const wmW = 420;
+      const wmW = 380;
       const wmX = (pageW - wmW) / 2;
       const wmY = (pageH - wmW) / 2;
-      try { doc.image(logoPath, wmX, wmY, { width: wmW }); } catch {}
+      try {
+        doc.image(logoPath, wmX, wmY, { width: wmW });
+      } catch {}
     }
     doc.restore();
     doc.opacity(1);
@@ -286,8 +298,10 @@ function drawInvoicePDF(doc, payload) {
     doc.save();
     doc.fillColor(fill).circle(cx, cy, r).fill();
     doc.strokeColor("#FFFFFF").lineWidth(1);
-    const w = 10, h = 7;
-    const x = cx - w / 2, y = cy - h / 2;
+    const w = 10,
+      h = 7;
+    const x = cx - w / 2,
+      y = cy - h / 2;
     doc.rect(x, y, w, h).stroke();
     doc.moveTo(x, y).lineTo(cx, cy).lineTo(x + w, y).stroke();
     doc.restore();
@@ -295,6 +309,7 @@ function drawInvoicePDF(doc, payload) {
 
   const drawFooter = () => {
     const rowY = footerTopY;
+
     doc.save();
     doc.fillColor(colors.lightBg).rect(0, rowY, pageW, FOOTER_ROW_H).fill();
     doc.restore();
@@ -303,13 +318,13 @@ function drawInvoicePDF(doc, payload) {
     const yText = rowY + 6;
 
     const drawFooterItem = (centerX, iconFn, iconFill, text) => {
-      const iconR = 9;
-      const iconX = centerX - 72;
+      const iconR = 8.5;
+      const iconX = centerX - 70;
       const iconY = rowY + FOOTER_ROW_H / 2;
       iconFn(iconX, iconY, iconR, iconFill);
 
-      doc.font("Helvetica").fontSize(9).fillColor(colors.muted);
-      doc.text(text, iconX + 16, yText, { width: 180, align: "left" });
+      doc.font("Helvetica").fontSize(8.5).fillColor(colors.muted);
+      doc.text(text, iconX + 15, yText, { width: 175, align: "left" });
     };
 
     drawFooterItem(third * 0.5, drawIconWeb, "#7C3AED", FOOTER_CONTACT.website);
@@ -321,33 +336,47 @@ function drawInvoicePDF(doc, payload) {
   };
 
   const drawHeader = () => {
-    doc.font("Helvetica").fontSize(8).fillColor(colors.muted);
-    doc.text("*This Invoice is Computer Generated", M.L, 18);
+    doc.font("Helvetica").fontSize(7.8).fillColor(colors.muted);
+    doc.text("*This Invoice is Computer Generated", M.L, 16);
 
-    const topY = 44;
+    const topY = 38;
 
-    doc.font("Helvetica-Bold").fontSize(18).fillColor(colors.text);
+    doc.font("Helvetica-Bold").fontSize(16).fillColor(colors.text);
     doc.text("INVOICE", M.L, topY);
 
-    const logoW = 80;
+    const logoW = 76;
     const logoX = pageW - M.R - logoW;
     const logoY = topY - 6;
     if (logoPath) {
-      try { doc.image(logoPath, logoX, logoY, { width: logoW }); } catch {}
+      try {
+        doc.image(logoPath, logoX, logoY, { width: logoW });
+      } catch {}
     }
 
-    const nameX = logoX - 170;
-    doc.font("Helvetica-Bold").fontSize(10).fillColor(colors.text);
-    doc.text(COMPANY.name, nameX, topY, { width: 160, align: "right" });
-    doc.font("Helvetica").fontSize(8).fillColor(colors.muted);
-    doc.text(COMPANY.tagline, nameX, topY + 12, { width: 160, align: "right" });
+    // Right block: company + gstin + address (compact)
+    const nameX = logoX - 190;
+    doc.font("Helvetica-Bold").fontSize(9.5).fillColor(colors.text);
+    doc.text(COMPANY.name, nameX, topY, { width: 180, align: "right" });
 
-    divider(topY + 34);
-    return topY + 46;
+    doc.font("Helvetica").fontSize(7.8).fillColor(colors.muted);
+    doc.text(COMPANY.tagline, nameX, topY + 11, { width: 180, align: "right" });
+
+    doc.font("Helvetica-Bold").fontSize(7.8).fillColor(colors.text);
+    doc.text(COMPANY.gstin, nameX, topY + 22, { width: 180, align: "right" });
+
+    doc.font("Helvetica").fontSize(7.3).fillColor(colors.muted);
+    doc.text(COMPANY.addressLines.join("\n"), nameX, topY + 33, {
+      width: 180,
+      align: "right",
+      lineGap: 1,
+    });
+
+    divider(topY + 80);
+    return topY + 90;
   };
 
   const drawTableHeader = (x, y, w, cols) => {
-    const h = 22;
+    const h = 20;
     drawHorizontalGradient(doc, x, y, w, h, colors.gradLeft, colors.gradRight, 120);
 
     doc.rect(x, y, w, h).lineWidth(0.8).strokeColor(colors.border).stroke();
@@ -355,14 +384,14 @@ function drawInvoicePDF(doc, payload) {
       doc.moveTo(vx, y).lineTo(vx, y + h).strokeColor(colors.border).stroke();
     });
 
-    doc.font("Helvetica-Bold").fontSize(8).fillColor("#FFFFFF");
-    doc.text("Item No", cols.item.x + 6, y + 7, { width: cols.item.w - 12, align: "left" });
-    doc.text("Description", cols.desc.x + 6, y + 7, { width: cols.desc.w - 12, align: "left" });
-    doc.text("Rate (INR)", cols.rate.x + 6, y + 7, { width: cols.rate.w - 12, align: "right" });
-    doc.text("Quantity", cols.qty.x + 6, y + 7, { width: cols.qty.w - 12, align: "right" });
-    doc.text("Amount (INR)", cols.amt.x + 6, y + 7, { width: cols.amt.w - 12, align: "right" });
+    doc.font("Helvetica-Bold").fontSize(7.8).fillColor("#FFFFFF");
+    doc.text("Item", cols.item.x + 6, y + 6, { width: cols.item.w - 12, align: "left" });
+    doc.text("Description", cols.desc.x + 6, y + 6, { width: cols.desc.w - 12, align: "left" });
+    doc.text("Rate", cols.rate.x + 6, y + 6, { width: cols.rate.w - 12, align: "right" });
+    doc.text("Qty", cols.qty.x + 6, y + 6, { width: cols.qty.w - 12, align: "right" });
+    doc.text("Amount", cols.amt.x + 6, y + 6, { width: cols.amt.w - 12, align: "right" });
 
-    doc.font("Helvetica").fontSize(9).fillColor(colors.text);
+    doc.font("Helvetica").fontSize(8.8).fillColor(colors.text);
     return y + h;
   };
 
@@ -372,98 +401,119 @@ function drawInvoicePDF(doc, payload) {
     return drawHeader();
   };
 
+  // Single page limits
   const maxY = footerTopY - 10;
 
   let y = startPage();
 
-  const ensureSpace = (needed) => {
-    if (y + needed > maxY) {
-      doc.addPage();
-      y = startPage() + 10;
-    }
-  };
+  // Reserve a compact tail area so everything stays on one page
+  const RESERVED_TAIL = 220; // bank+totals + notes/sign (compact)
+  const maxTableY = Math.max(y + 80, maxY - RESERVED_TAIL);
 
-  // Header section
+  // Header section (Bill To + Invoice info)
   const headerTopY = y;
-  const leftW = 280;
+  const leftW = 285;
   const rightW = 240;
   const rightX = M.L + contentW - rightW;
 
-  doc.font("Helvetica-Bold").fontSize(9).fillColor(colors.text);
+  doc.font("Helvetica-Bold").fontSize(8.8).fillColor(colors.text);
   doc.text("Bill To", M.L, headerTopY);
 
-  doc.font("Helvetica").fontSize(9).fillColor(colors.text);
-  let by = headerTopY + 14;
-  if (billToName) { doc.text(String(billToName), M.L, by, { width: leftW }); by += 12; }
-  if (billToCompany) { doc.text(String(billToCompany), M.L, by, { width: leftW }); by += 12; }
-  if (billToAddress) { doc.text(String(billToAddress), M.L, by, { width: leftW }); }
+  doc.font("Helvetica").fontSize(8.8).fillColor(colors.text);
+  let by = headerTopY + 12;
 
-  doc.font("Helvetica-Bold").fontSize(9).fillColor(colors.text);
+  if (billToName) {
+    doc.text(String(billToName), M.L, by, { width: leftW });
+    by += 11;
+  }
+  if (billToCompany) {
+    doc.text(String(billToCompany), M.L, by, { width: leftW });
+    by += 11;
+  }
+  if (billToAddress) {
+    doc.text(String(billToAddress), M.L, by, { width: leftW });
+  }
+
+  doc.font("Helvetica-Bold").fontSize(8.8).fillColor(colors.text);
   doc.text("Invoice Number", rightX, headerTopY, { width: 120, align: "left" });
-  doc.text("Issue Date", rightX, headerTopY + 14, { width: 120, align: "left" });
-  doc.text("Due Date", rightX, headerTopY + 28, { width: 120, align: "left" });
+  doc.text("Issue Date", rightX, headerTopY + 12, { width: 120, align: "left" });
+  doc.text("Due Date", rightX, headerTopY + 24, { width: 120, align: "left" });
 
-  doc.font("Helvetica").fontSize(9).fillColor(colors.text);
+  doc.font("Helvetica").fontSize(8.8).fillColor(colors.text);
   doc.text(String(invoiceNo || "-"), rightX + 120, headerTopY, { width: rightW - 120, align: "right" });
-  doc.text(String(issueDate || "-"), rightX + 120, headerTopY + 14, { width: rightW - 120, align: "right" });
-  doc.text(String(dueDate || "-"), rightX + 120, headerTopY + 28, { width: rightW - 120, align: "right" });
+  doc.text(String(issueDate || "-"), rightX + 120, headerTopY + 12, { width: rightW - 120, align: "right" });
+  doc.text(String(dueDate || "-"), rightX + 120, headerTopY + 24, { width: rightW - 120, align: "right" });
 
-  y = headerTopY + 64;
+  y = headerTopY + 54;
 
   // Table
   const tableX = M.L;
   const tableW = contentW;
 
   const cols = {
-    item: { x: tableX, w: 60 },
+    item: { x: tableX, w: 46 },
     desc: { x: 0, w: 0 },
-    rate: { x: 0, w: 95 },
-    qty:  { x: 0, w: 80 },
-    amt:  { x: 0, w: 120 },
+    rate: { x: 0, w: 88 },
+    qty: { x: 0, w: 60 },
+    amt: { x: 0, w: 110 },
   };
 
   cols.desc.w = tableW - (cols.item.w + cols.rate.w + cols.qty.w + cols.amt.w);
   cols.desc.x = cols.item.x + cols.item.w;
   cols.rate.x = cols.desc.x + cols.desc.w;
-  cols.qty.x  = cols.rate.x + cols.rate.w;
-  cols.amt.x  = cols.qty.x + cols.qty.w;
+  cols.qty.x = cols.rate.x + cols.rate.w;
+  cols.amt.x = cols.qty.x + cols.qty.w;
 
   y = drawTableHeader(tableX, y, tableW, cols);
 
   const rows = Array.isArray(items) ? items : [];
 
-  if (rows.length === 0) {
-    const rowH = 22;
-    doc.rect(tableX, y, tableW, rowH).lineWidth(0.8).strokeColor(colors.border).stroke();
+  const drawRowBox = (rowY, rowH) => {
+    doc.rect(tableX, rowY, tableW, rowH).lineWidth(0.8).strokeColor(colors.border).stroke();
     [cols.desc.x, cols.rate.x, cols.qty.x, cols.amt.x].forEach((vx) => {
-      doc.moveTo(vx, y).lineTo(vx, y + rowH).strokeColor(colors.border).stroke();
+      doc.moveTo(vx, rowY).lineTo(vx, rowY + rowH).strokeColor(colors.border).stroke();
     });
-    doc.font("Helvetica").fontSize(9).fillColor(colors.muted);
-    doc.text("No items", cols.desc.x + 6, y + 6, { width: cols.desc.w - 12, align: "left" });
+  };
+
+  if (rows.length === 0) {
+    const rowH = 20;
+    drawRowBox(y, rowH);
+    doc.font("Helvetica").fontSize(8.6).fillColor(colors.muted);
+    doc.text("No items", cols.desc.x + 6, y + 5, { width: cols.desc.w - 12, align: "left" });
     y += rowH;
   } else {
-    rows.forEach((it, idx) => {
+    // ✅ single-page: if items exceed space, stop and show message
+    for (let idx = 0; idx < rows.length; idx++) {
+      const it = rows[idx];
       const desc = String(it.description || "Item");
       const qty = Number(it.quantity || 0);
       const rate = Number(it.unit_price || 0);
       const amount = qty * rate;
 
-      doc.font("Helvetica").fontSize(9).fillColor(colors.text);
+      doc.font("Helvetica").fontSize(8.6).fillColor(colors.text);
       const descH = doc.heightOfString(desc, { width: cols.desc.w - 12 });
-      const rowH = Math.max(22, descH + 10);
+      const rowH = Math.max(20, descH + 8);
 
-      if (y + rowH > maxY) {
-        doc.addPage();
-        y = startPage() + 20;
-        y = drawTableHeader(tableX, y, tableW, cols);
+      if (y + rowH > maxTableY) {
+        const msgH = 18;
+        if (y + msgH <= maxTableY + 2) {
+          drawRowBox(y, msgH);
+          doc.font("Helvetica").fontSize(8.2).fillColor(colors.muted);
+          doc.text(
+            `+ ${rows.length - idx} more item(s) not shown (one-page invoice).`,
+            cols.desc.x + 6,
+            y + 5,
+            { width: cols.desc.w - 12, align: "left" }
+          );
+          y += msgH;
+        }
+        break;
       }
 
-      doc.rect(tableX, y, tableW, rowH).lineWidth(0.8).strokeColor(colors.border).stroke();
-      [cols.desc.x, cols.rate.x, cols.qty.x, cols.amt.x].forEach((vx) => {
-        doc.moveTo(vx, y).lineTo(vx, y + rowH).strokeColor(colors.border).stroke();
-      });
+      drawRowBox(y, rowH);
 
-      const py = y + 6;
+      const py = y + 5;
+      doc.font("Helvetica").fontSize(8.6).fillColor(colors.text);
       doc.text(String(idx + 1), cols.item.x + 6, py, { width: cols.item.w - 12, align: "left" });
       doc.text(desc, cols.desc.x + 6, py, { width: cols.desc.w - 12, align: "left" });
       doc.text(formatINR(rate), cols.rate.x + 6, py, { width: cols.rate.w - 12, align: "right" });
@@ -471,48 +521,36 @@ function drawInvoicePDF(doc, payload) {
       doc.text(formatINR(amount), cols.amt.x + 6, py, { width: cols.amt.w - 12, align: "right" });
 
       y += rowH;
-    });
+    }
   }
 
-  y += GAP_LG;
+  y += GAP_MD;
 
-  // Tail sections need space (Bank+Totals + Notes + Signature)
-  ensureSpace(320);
+  // ---- Bank + Totals row (compact) ----
+  const bankGap = 16;
+  const totalsW = 290;
+  const totalsX = M.L + contentW - totalsW;
+  const bankX = M.L;
+  const bankW = totalsX - bankX - bankGap;
 
-  // Bank + Totals (✅ FIXED WIDTH LOGIC)
-  const bankGap = 18;
-  let totalsW = Math.round(contentW * 0.42);
-  totalsW = Math.max(240, Math.min(310, totalsW));
-  let totalsX = M.L + contentW - totalsW;
-  let bankX = M.L;
-  let bankW = totalsX - bankX - bankGap;
-
-  const bankMinW = 270;
-  if (bankW < bankMinW) {
-    totalsW = Math.max(220, contentW - bankMinW - bankGap);
-    totalsX = M.L + contentW - totalsW;
-    bankW = totalsX - bankX - bankGap;
-  }
-
-  // Totals box
-  const totalsBoxH = 92;
+  // Totals box (✅ GST breakup; ✅ removed Amount Received & Balance)
+  const totalsBoxH = 78;
   doc.rect(totalsX, y, totalsW, totalsBoxH).strokeColor(colors.border).lineWidth(0.9).stroke();
 
   const tRow = (label, value, rowIndex, bold = false) => {
-    const ry = y + 12 + rowIndex * 16;
-    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(10).fillColor(colors.text);
-    doc.text(label, totalsX + 14, ry, { width: 170, align: "left" });
-    doc.text(value, totalsX + 14, ry, { width: totalsW - 28, align: "right" });
+    const ry = y + 10 + rowIndex * 16;
+    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9.5).fillColor(colors.text);
+    doc.text(label, totalsX + 12, ry, { width: 170, align: "left" });
+    doc.text(value, totalsX + 12, ry, { width: totalsW - 24, align: "right" });
   };
 
   tRow("Subtotal", formatINR(subtotal), 0);
-  tRow("Tax", formatINR(tax), 1);
-  tRow("Total", formatINR(total), 2, true);
-  tRow("Amount Received", formatINR(received), 3);
-  tRow("Balance Due", formatINR(balance), 4, true);
+  tRow("CGST (9%)", formatINR(cgst), 1);
+  tRow("SGST (9%)", formatINR(sgst), 2);
+  tRow("Grand Total", formatINR(total), 3, true);
 
-  // Bank block (✅ dynamic row height => NO overlap)
-  doc.font("Helvetica-Bold").fontSize(12).fillColor(colors.text);
+  // Bank block
+  doc.font("Helvetica-Bold").fontSize(10.5).fillColor(colors.text);
   doc.text("Bank Details", bankX, y, { width: bankW });
 
   const bankLines = [
@@ -524,14 +562,14 @@ function drawInvoicePDF(doc, payload) {
     ["UPI :", BANK.upi],
   ];
 
-  const labelW = Math.min(120, Math.max(95, Math.round(bankW * 0.42)));
+  const labelW = Math.min(112, Math.max(92, Math.round(bankW * 0.42)));
   const valueX = bankX + labelW;
-  const valueW = Math.max(70, bankW - labelW);
+  const valueW = Math.max(60, bankW - labelW);
 
-  doc.font("Helvetica").fontSize(9);
-  let bY = y + 18;
+  doc.font("Helvetica").fontSize(8.4);
+  let bY = y + 16;
 
-  bankLines.forEach(([k, v]) => {
+  for (const [k, v] of bankLines) {
     const key = String(k);
     const val = String(v ?? "");
 
@@ -541,49 +579,58 @@ function drawInvoicePDF(doc, payload) {
     doc.fillColor(colors.text);
     const hVal = doc.heightOfString(val, { width: valueW });
 
-    const rowH = Math.max(14, hKey, hVal);
+    const rowH = Math.max(12, hKey, hVal);
 
     doc.fillColor(colors.muted).text(key, bankX, bY, { width: labelW, align: "left" });
     doc.fillColor(colors.text).text(val, valueX, bY, { width: valueW, align: "left" });
 
     bY += rowH;
-  });
+  }
 
-  y = Math.max(bY, y + totalsBoxH) + GAP_MD;
+  const bankHeight = bY - y;
+  const blockH = Math.max(bankHeight, totalsBoxH);
 
-  // Notes (✅ dynamic wrap height)
-  doc.font("Helvetica-Bold").fontSize(11).fillColor(colors.text);
-  doc.text("Notes", M.L, y);
+  y = y + blockH + GAP_SM;
 
-  doc.font("Helvetica").fontSize(9).fillColor(colors.text);
-  const notesW = Math.round(contentW * 0.62);
-  let ny = y + 14;
-
-  NOTES.forEach((t, i) => {
-    const line = `${i + 1}. ${t}`;
-    const h = doc.heightOfString(line, { width: notesW });
-    doc.text(line, M.L, ny, { width: notesW, align: "left" });
-    ny += Math.max(12, h + 2);
-  });
-
-  y = ny + GAP_MD;
-
-  ensureSpace(120);
-
-  // Signature (bottom-right)
-  const sigBoxW = 200;
-  const sigBoxH = 62;
+  // ---- Notes (left) + Signature (right) on same row (saves space) ----
+  const sigBoxW = 190;
   const sigX = pageW - M.R - sigBoxW;
 
-  doc.font("Helvetica-Bold").fontSize(10).fillColor(colors.text);
-  doc.text("Chandan G", sigX, y, { width: sigBoxW, align: "right" });
-  doc.font("Helvetica").fontSize(9).fillColor(colors.muted);
-  doc.text("Head of the Company", sigX, y + 14, { width: sigBoxW, align: "right" });
+  const notesW = Math.max(220, sigX - M.L - 16);
+  const notesX = M.L;
+  const notesY = y;
 
-  doc.font("Helvetica").fontSize(8.5).fillColor(colors.muted);
-  doc.text("Signature / Seal", sigX, y + 30, { width: sigBoxW, align: "right" });
+  // Notes (compact; auto-truncate if close to footer)
+  doc.font("Helvetica-Bold").fontSize(9.6).fillColor(colors.text);
+  doc.text("Notes", notesX, notesY, { width: notesW });
 
-  const boxY = y + 42;
+  doc.font("Helvetica").fontSize(8.2).fillColor(colors.text);
+
+  let ny = notesY + 12;
+  const notesBottomLimit = maxY - 6;
+
+  for (let i = 0; i < NOTES.length; i++) {
+    const line = `${i + 1}. ${NOTES[i]}`;
+    const h = doc.heightOfString(line, { width: notesW });
+    if (ny + h > notesBottomLimit) break;
+    doc.text(line, notesX, ny, { width: notesW, align: "left" });
+    ny += Math.max(10, h + 1);
+  }
+
+  // Signature (right) - compact
+  const sigY = notesY;
+  const sigBoxH = 52;
+
+  doc.font("Helvetica-Bold").fontSize(9.2).fillColor(colors.text);
+  doc.text("Chandan G", sigX, sigY, { width: sigBoxW, align: "right" });
+
+  doc.font("Helvetica").fontSize(8.2).fillColor(colors.muted);
+  doc.text("Head of the Company", sigX, sigY + 12, { width: sigBoxW, align: "right" });
+
+  doc.font("Helvetica").fontSize(7.6).fillColor(colors.muted);
+  doc.text("Signature / Seal", sigX, sigY + 24, { width: sigBoxW, align: "right" });
+
+  const boxY = sigY + 34;
   doc.rect(sigX, boxY, sigBoxW, sigBoxH).strokeColor(colors.border).lineWidth(0.9).stroke();
 
   if (signaturePath) {
@@ -678,7 +725,9 @@ router.post("/invoices", authorizeRoles("admin", "accounts"), async (req, res) =
     res.status(201).json({ id: invoiceId, invoice_number: number });
   } catch (err) {
     console.error("POST /accounts/invoices failed:", err);
-    try { await run("ROLLBACK"); } catch {}
+    try {
+      await run("ROLLBACK");
+    } catch {}
     res.status(500).json({ message: "Failed to create invoice" });
   }
 });
@@ -788,11 +837,12 @@ router.put("/invoices/:id", authorizeRoles("admin", "accounts"), async (req, res
     const clientId = body.client_id !== undefined ? toNumberOrNull(body.client_id) : undefined;
 
     const requestedStatus = normalizeStatus(body.status); // due/partial/paid or null
-    const additionalPayment =
-      toNumberOrNull(body.additional_payment ?? body.payment_now ?? body.paymentNow);
+    const additionalPayment = toNumberOrNull(body.additional_payment ?? body.payment_now ?? body.paymentNow);
 
     const paymentDateRaw = body.payment_date ?? body.paymentDate;
-    const paymentDate = paymentDateRaw ? String(paymentDateRaw).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const paymentDate = paymentDateRaw
+      ? String(paymentDateRaw).slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
 
     // Items support (preferred)
     const items = Array.isArray(body.items) ? body.items : null;
@@ -806,35 +856,30 @@ router.put("/invoices/:id", authorizeRoles("admin", "accounts"), async (req, res
 
     await run("BEGIN");
 
-    /* ---- Update invoice header fields (without COALESCE issues) ---- */
+    /* ---- Update invoice header fields ---- */
     const fields = [];
     const params = [];
 
-    // issue_date: only update if provided and not null
     if (issueDate !== undefined && issueDate !== null) {
       fields.push("issue_date = ?");
       params.push(issueDate);
     }
 
-    // due_date: if provided (even null), update
     if (dueDate !== undefined) {
       fields.push("due_date = ?");
-      params.push(dueDate); // can be null => clears
+      params.push(dueDate);
     }
 
-    // gst_applicable
     if (gst01 !== null) {
       fields.push("gst_applicable = ?");
       params.push(gst01);
     }
 
-    // notes
     if (notes !== undefined) {
       fields.push("notes = ?");
       params.push(notes);
     }
 
-    // client_id (optional)
     if (clientId !== undefined && clientId !== null) {
       fields.push("client_id = ?");
       params.push(clientId);
@@ -847,7 +892,6 @@ router.put("/invoices/:id", authorizeRoles("admin", "accounts"), async (req, res
 
     /* ---- Update items ---- */
     if (items && items.length > 0) {
-      // Replace all items for this invoice (matches your UI)
       await run("DELETE FROM invoice_items WHERE invoice_id = ?", [invoiceId]);
 
       for (const rawItem of items) {
@@ -859,7 +903,6 @@ router.put("/invoices/:id", authorizeRoles("admin", "accounts"), async (req, res
         );
       }
     } else if (amount !== null || description !== undefined) {
-      // Legacy single-line behavior: update first item (or create)
       const first = await get(
         "SELECT id FROM invoice_items WHERE invoice_id = ? ORDER BY id ASC LIMIT 1",
         [invoiceId]
@@ -885,10 +928,12 @@ router.put("/invoices/:id", authorizeRoles("admin", "accounts"), async (req, res
 
     /* ---- Add payment if provided ---- */
     if (additionalPayment !== null && additionalPayment > 0) {
-      await run(
-        "INSERT INTO payments (invoice_id, payment_date, amount, mode) VALUES (?,?,?,?)",
-        [invoiceId, paymentDate, additionalPayment, body.mode || "manual"]
-      );
+      await run("INSERT INTO payments (invoice_id, payment_date, amount, mode) VALUES (?,?,?,?)", [
+        invoiceId,
+        paymentDate,
+        additionalPayment,
+        body.mode || "manual",
+      ]);
     }
 
     /* ---- If status wants PAID/COMPLETED: auto-pay remaining ---- */
@@ -897,24 +942,26 @@ router.put("/invoices/:id", authorizeRoles("admin", "accounts"), async (req, res
     if (requestedStatus === "paid") {
       const remaining = Math.max(totals.total - totals.paid, 0);
       if (remaining > 0) {
-        await run(
-          "INSERT INTO payments (invoice_id, payment_date, amount, mode) VALUES (?,?,?,?)",
-          [invoiceId, paymentDate, remaining, "auto_close"]
-        );
+        await run("INSERT INTO payments (invoice_id, payment_date, amount, mode) VALUES (?,?,?,?)", [
+          invoiceId,
+          paymentDate,
+          remaining,
+          "auto_close",
+        ]);
         totals = await computeTotals(invoiceId);
       }
     }
 
-    // Final status always based on totals (keeps system consistent)
     await run("UPDATE invoices SET status = ? WHERE id = ?", [totals.status, invoiceId]);
-
     await run("COMMIT");
 
     res.json({ id: invoiceId, status: totals.status, totals });
   } catch (err) {
     console.error("PUT /accounts/invoices/:id failed:", err);
     console.error("Request body:", req.body);
-    try { await run("ROLLBACK"); } catch {}
+    try {
+      await run("ROLLBACK");
+    } catch {}
     res.status(500).json({ message: "Failed to update invoice" });
   }
 });
@@ -933,7 +980,7 @@ router.delete("/invoices/:id", authorizeRoles("admin"), async (req, res) => {
   }
 });
 
-// INVOICE PDF
+// INVOICE PDF (✅ CGST+SGST; ✅ no Amount Received; ✅ single page layout)
 router.get("/invoices/:id/pdf", authorizeRoles("admin", "accounts", "sales"), async (req, res) => {
   try {
     const invoiceId = req.params.id;
@@ -963,16 +1010,11 @@ router.get("/invoices/:id/pdf", authorizeRoles("admin", "accounts", "sales"), as
     }
 
     const subtotal = items.reduce((s, it) => s + Number(it.quantity || 0) * Number(it.unit_price || 0), 0);
-    const tax = invoice.gst_applicable ? subtotal * 0.18 : 0;
-    const total = subtotal + tax;
 
-    const paidRow = await get(
-      "SELECT COALESCE(SUM(amount), 0) AS paid FROM payments WHERE invoice_id = ?",
-      [invoiceId]
-    );
-
-    const received = Number(paidRow?.paid || 0);
-    const balance = Math.max(total - received, 0);
+    // ✅ GST breakup: CGST 9% + SGST 9%
+    const cgst = invoice.gst_applicable ? subtotal * 0.09 : 0;
+    const sgst = invoice.gst_applicable ? subtotal * 0.09 : 0;
+    const total = subtotal + cgst + sgst;
 
     const person = String(invoice.client_contact_person || "").trim();
     const company = String(invoice.client_company_name || "").trim();
@@ -984,7 +1026,7 @@ router.get("/invoices/:id/pdf", authorizeRoles("admin", "accounts", "sales"), as
 
     const pdfDoc = new PDFDocument({
       size: "A4",
-      margins: { top: 40, left: 50, right: 50, bottom: 40 },
+      margins: { top: 36, left: 50, right: 50, bottom: 36 },
     });
 
     const filename = `Invoice-${invoice.invoice_number || invoiceId}.pdf`;
@@ -1002,10 +1044,9 @@ router.get("/invoices/:id/pdf", authorizeRoles("admin", "accounts", "sales"), as
       billToAddress,
       items,
       subtotal,
-      tax,
+      cgst,
+      sgst,
       total,
-      received,
-      balance,
     });
 
     pdfDoc.end();

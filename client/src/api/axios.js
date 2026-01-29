@@ -3,7 +3,7 @@ import axios from "axios";
 
 // Set in client/.env:
 // VITE_API_BASE_URL=http://localhost:4000
-const RAW = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+const RAW = import.meta.env.VITE_API_BASE_URL || "https://bizsuite-full-project.onrender.com";
 
 // normalize + ensure /api suffix
 const cleaned = String(RAW).replace(/\/+$/, "");
