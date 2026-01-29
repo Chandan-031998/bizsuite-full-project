@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  server:
+    build: ./server
+    container_name: bizsuite-server
+    environment:
+      - NODE_ENV=development
+      - PORT=4000
+      - JWT_SECRET=super-secret-change-me
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./server/data.sqlite:/app/data.sqlite
+      - ./server/uploads:/app/uploads
+
+  client:
+    build: ./client
+    container_name: bizsuite-client
+    depends_on:
+      - server
+    ports:
+      - "5173:80"

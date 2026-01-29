@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# env files (secrets)
+.env
+server/.env
+client/.env
+.env.*
+
+# builds
+dist/
+client/dist/
+build/
+
+# logs
+*.log
+
+# local db / cache
+data.sqlite
+*.sqlite
+.DS_Store
