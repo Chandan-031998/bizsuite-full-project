@@ -176,6 +176,7 @@ const normalizeItem = (item, fallbackDescription = "Services") => {
 };
 
 /* ---------------- PDF Renderer (Single Page, Compact, Professional) ---------------- */
+/* ---------------- PDF Renderer (more spacing + one-page feel) ---------------- */
 function drawInvoicePDF(doc, payload) {
   const {
     invoiceNo,
@@ -194,7 +195,7 @@ function drawInvoicePDF(doc, payload) {
   const COMPANY = {
     name: "Vertex Software",
     tagline: "Software Development & Services",
-    gstin: "GSTIN: 29CNGPC2359M1ZN",
+    gstin: "29CNGPC2359M1ZN",
     addressLines: [
       "2ND AND 3RD FLOOR,",
       "No. 472/7, Balaji Arcade,",
@@ -205,7 +206,7 @@ function drawInvoicePDF(doc, payload) {
   };
 
   const BANK = {
-    accountName: "Chandan G", // ✅ changed only account name
+    accountName: "Chandan G", // ✅ changed
     bankName: "Axis Bank",
     accountNumber: "922010030814228",
     branch: "Mysore",
@@ -238,18 +239,19 @@ function drawInvoicePDF(doc, payload) {
   const pageW = doc.page.width;
   const pageH = doc.page.height;
 
-  // Compact margins (still professional)
-  const M = { L: 52, T: 38, R: 52, B: 38 };
+  // Slightly tighter margins, but MORE internal spacing (looks airy)
+  const M = { L: 55, T: 40, R: 55, B: 40 };
   const contentW = pageW - M.L - M.R;
 
-  const FOOTER_BAR_H = 16;
-  const FOOTER_ROW_H = 24;
+  // Footer
+  const FOOTER_BAR_H = 18;
+  const FOOTER_ROW_H = 26;
   const FOOTER_H = FOOTER_ROW_H + FOOTER_BAR_H;
   const footerTopY = pageH - M.B - FOOTER_H;
+  const maxY = footerTopY - 10;
 
-  const GAP_SM = 8;
-  const GAP_MD = 12;
-  const GAP_LG = 14;
+  // Spacing tokens (more breathing room)
+  const GAP = { XS: 6, SM: 10, MD: 16, LG: 22 };
 
   const logoPath = resolveLogoPath();
   const signaturePath = resolveSignaturePath();
@@ -265,7 +267,7 @@ function drawInvoicePDF(doc, payload) {
     doc.save();
     doc.opacity(0.06);
     if (logoPath) {
-      const wmW = 380;
+      const wmW = 420;
       const wmX = (pageW - wmW) / 2;
       const wmY = (pageH - wmW) / 2;
       try {
@@ -309,7 +311,6 @@ function drawInvoicePDF(doc, payload) {
 
   const drawFooter = () => {
     const rowY = footerTopY;
-
     doc.save();
     doc.fillColor(colors.lightBg).rect(0, rowY, pageW, FOOTER_ROW_H).fill();
     doc.restore();
@@ -318,13 +319,13 @@ function drawInvoicePDF(doc, payload) {
     const yText = rowY + 6;
 
     const drawFooterItem = (centerX, iconFn, iconFill, text) => {
-      const iconR = 8.5;
-      const iconX = centerX - 70;
+      const iconR = 9;
+      const iconX = centerX - 72;
       const iconY = rowY + FOOTER_ROW_H / 2;
       iconFn(iconX, iconY, iconR, iconFill);
 
-      doc.font("Helvetica").fontSize(8.5).fillColor(colors.muted);
-      doc.text(text, iconX + 15, yText, { width: 175, align: "left" });
+      doc.font("Helvetica").fontSize(9).fillColor(colors.muted);
+      doc.text(text, iconX + 16, yText, { width: 180, align: "left" });
     };
 
     drawFooterItem(third * 0.5, drawIconWeb, "#7C3AED", FOOTER_CONTACT.website);
@@ -336,15 +337,17 @@ function drawInvoicePDF(doc, payload) {
   };
 
   const drawHeader = () => {
-    doc.font("Helvetica").fontSize(7.8).fillColor(colors.muted);
-    doc.text("*This Invoice is Computer Generated", M.L, 16);
+    doc.font("Helvetica").fontSize(8).fillColor(colors.muted);
+    doc.text("*This Invoice is Computer Generated", M.L, 18);
 
-    const topY = 38;
+    const topY = 44;
 
-    doc.font("Helvetica-Bold").fontSize(16).fillColor(colors.text);
+    // Left title
+    doc.font("Helvetica-Bold").fontSize(18).fillColor(colors.text);
     doc.text("INVOICE", M.L, topY);
 
-    const logoW = 76;
+    // Logo
+    const logoW = 80;
     const logoX = pageW - M.R - logoW;
     const logoY = topY - 6;
     if (logoPath) {
@@ -353,30 +356,37 @@ function drawInvoicePDF(doc, payload) {
       } catch {}
     }
 
-    // Right block: company + gstin + address (compact)
+    // Right block (more line spacing)
     const nameX = logoX - 190;
-    doc.font("Helvetica-Bold").fontSize(9.5).fillColor(colors.text);
-    doc.text(COMPANY.name, nameX, topY, { width: 180, align: "right" });
+    const rightW = 180;
+    let ry = topY;
 
-    doc.font("Helvetica").fontSize(7.8).fillColor(colors.muted);
-    doc.text(COMPANY.tagline, nameX, topY + 11, { width: 180, align: "right" });
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(colors.text);
+    doc.text(COMPANY.name, nameX, ry, { width: rightW, align: "right" });
+    ry += 14;
 
-    doc.font("Helvetica-Bold").fontSize(7.8).fillColor(colors.text);
-    doc.text(COMPANY.gstin, nameX, topY + 22, { width: 180, align: "right" });
+    doc.font("Helvetica").fontSize(8.2).fillColor(colors.muted);
+    doc.text(COMPANY.tagline, nameX, ry, { width: rightW, align: "right" });
+    ry += 12;
 
-    doc.font("Helvetica").fontSize(7.3).fillColor(colors.muted);
-    doc.text(COMPANY.addressLines.join("\n"), nameX, topY + 33, {
-      width: 180,
-      align: "right",
-      lineGap: 1,
-    });
+    doc.font("Helvetica-Bold").fontSize(8.2).fillColor(colors.text);
+    doc.text(`GSTIN: ${COMPANY.gstin}`, nameX, ry, { width: rightW, align: "right" });
+    ry += 12;
 
-    divider(topY + 80);
-    return topY + 90;
+    doc.font("Helvetica").fontSize(8.2).fillColor(colors.muted);
+    const addrBlock = COMPANY.addressLines.join("\n");
+    const addrH = doc.heightOfString(addrBlock, { width: rightW, align: "right", lineGap: 2 });
+    doc.text(addrBlock, nameX, ry, { width: rightW, align: "right", lineGap: 2 });
+    ry += addrH;
+
+    const headerBottom = Math.max(ry, topY + 26) + 10;
+    divider(headerBottom);
+
+    return headerBottom + 14;
   };
 
   const drawTableHeader = (x, y, w, cols) => {
-    const h = 20;
+    const h = 24; // a bit taller
     drawHorizontalGradient(doc, x, y, w, h, colors.gradLeft, colors.gradRight, 120);
 
     doc.rect(x, y, w, h).lineWidth(0.8).strokeColor(colors.border).stroke();
@@ -384,14 +394,14 @@ function drawInvoicePDF(doc, payload) {
       doc.moveTo(vx, y).lineTo(vx, y + h).strokeColor(colors.border).stroke();
     });
 
-    doc.font("Helvetica-Bold").fontSize(7.8).fillColor("#FFFFFF");
-    doc.text("Item", cols.item.x + 6, y + 6, { width: cols.item.w - 12, align: "left" });
-    doc.text("Description", cols.desc.x + 6, y + 6, { width: cols.desc.w - 12, align: "left" });
-    doc.text("Rate", cols.rate.x + 6, y + 6, { width: cols.rate.w - 12, align: "right" });
-    doc.text("Qty", cols.qty.x + 6, y + 6, { width: cols.qty.w - 12, align: "right" });
-    doc.text("Amount", cols.amt.x + 6, y + 6, { width: cols.amt.w - 12, align: "right" });
+    doc.font("Helvetica-Bold").fontSize(8.2).fillColor("#FFFFFF");
+    doc.text("Item", cols.item.x + 8, y + 7, { width: cols.item.w - 16, align: "left" });
+    doc.text("Description", cols.desc.x + 8, y + 7, { width: cols.desc.w - 16, align: "left" });
+    doc.text("Rate (INR)", cols.rate.x + 8, y + 7, { width: cols.rate.w - 16, align: "right" });
+    doc.text("Qty", cols.qty.x + 8, y + 7, { width: cols.qty.w - 16, align: "right" });
+    doc.text("Amount (INR)", cols.amt.x + 8, y + 7, { width: cols.amt.w - 16, align: "right" });
 
-    doc.font("Helvetica").fontSize(8.8).fillColor(colors.text);
+    doc.font("Helvetica").fontSize(9).fillColor(colors.text);
     return y + h;
   };
 
@@ -401,61 +411,50 @@ function drawInvoicePDF(doc, payload) {
     return drawHeader();
   };
 
-  // Single page limits
-  const maxY = footerTopY - 10;
-
   let y = startPage();
 
-  // Reserve a compact tail area so everything stays on one page
-  const RESERVED_TAIL = 220; // bank+totals + notes/sign (compact)
-  const maxTableY = Math.max(y + 80, maxY - RESERVED_TAIL);
-
-  // Header section (Bill To + Invoice info)
+  /* ---------------- Bill To + Meta (with lineGap) ---------------- */
   const headerTopY = y;
-  const leftW = 285;
+  const leftW = 300;
   const rightW = 240;
   const rightX = M.L + contentW - rightW;
 
-  doc.font("Helvetica-Bold").fontSize(8.8).fillColor(colors.text);
+  const billToLines = ["", billToName, billToCompany, billToAddress]
+    .filter((v) => v && String(v).trim())
+    .map((v) => String(v).trim());
+
+  doc.font("Helvetica-Bold").fontSize(9.5).fillColor(colors.text);
   doc.text("Bill To", M.L, headerTopY);
 
-  doc.font("Helvetica").fontSize(8.8).fillColor(colors.text);
-  let by = headerTopY + 12;
+  doc.font("Helvetica").fontSize(9.2).fillColor(colors.text);
+  const billToBlock = billToLines.join("\n");
+  doc.text(billToBlock, M.L, headerTopY + 14, { width: leftW, lineGap: 2 });
 
-  if (billToName) {
-    doc.text(String(billToName), M.L, by, { width: leftW });
-    by += 11;
-  }
-  if (billToCompany) {
-    doc.text(String(billToCompany), M.L, by, { width: leftW });
-    by += 11;
-  }
-  if (billToAddress) {
-    doc.text(String(billToAddress), M.L, by, { width: leftW });
-  }
-
-  doc.font("Helvetica-Bold").fontSize(8.8).fillColor(colors.text);
+  // Meta labels
+  doc.font("Helvetica-Bold").fontSize(9.2).fillColor(colors.text);
   doc.text("Invoice Number", rightX, headerTopY, { width: 120, align: "left" });
-  doc.text("Issue Date", rightX, headerTopY + 12, { width: 120, align: "left" });
-  doc.text("Due Date", rightX, headerTopY + 24, { width: 120, align: "left" });
+  doc.text("Issue Date", rightX, headerTopY + 16, { width: 120, align: "left" });
+  doc.text("Due Date", rightX, headerTopY + 32, { width: 120, align: "left" });
 
-  doc.font("Helvetica").fontSize(8.8).fillColor(colors.text);
+  // Meta values
+  doc.font("Helvetica").fontSize(9.2).fillColor(colors.text);
   doc.text(String(invoiceNo || "-"), rightX + 120, headerTopY, { width: rightW - 120, align: "right" });
-  doc.text(String(issueDate || "-"), rightX + 120, headerTopY + 12, { width: rightW - 120, align: "right" });
-  doc.text(String(dueDate || "-"), rightX + 120, headerTopY + 24, { width: rightW - 120, align: "right" });
+  doc.text(String(issueDate || "-"), rightX + 120, headerTopY + 16, { width: rightW - 120, align: "right" });
+  doc.text(String(dueDate || "-"), rightX + 120, headerTopY + 32, { width: rightW - 120, align: "right" });
 
-  y = headerTopY + 54;
+  const billToH = doc.heightOfString(billToBlock, { width: leftW, lineGap: 2 });
+  y = headerTopY + 14 + Math.max(billToH, 46) + GAP.MD;
 
-  // Table
+  /* ---------------- Items table (more padding) ---------------- */
   const tableX = M.L;
   const tableW = contentW;
 
   const cols = {
-    item: { x: tableX, w: 46 },
+    item: { x: tableX, w: 58 },
     desc: { x: 0, w: 0 },
-    rate: { x: 0, w: 88 },
-    qty: { x: 0, w: 60 },
-    amt: { x: 0, w: 110 },
+    rate: { x: 0, w: 95 },
+    qty: { x: 0, w: 70 },
+    amt: { x: 0, w: 120 },
   };
 
   cols.desc.w = tableW - (cols.item.w + cols.rate.w + cols.qty.w + cols.amt.w);
@@ -467,81 +466,70 @@ function drawInvoicePDF(doc, payload) {
   y = drawTableHeader(tableX, y, tableW, cols);
 
   const rows = Array.isArray(items) ? items : [];
-
-  const drawRowBox = (rowY, rowH) => {
-    doc.rect(tableX, rowY, tableW, rowH).lineWidth(0.8).strokeColor(colors.border).stroke();
-    [cols.desc.x, cols.rate.x, cols.qty.x, cols.amt.x].forEach((vx) => {
-      doc.moveTo(vx, rowY).lineTo(vx, rowY + rowH).strokeColor(colors.border).stroke();
-    });
-  };
+  const minRowH = 28;
+  const padY = 8;
 
   if (rows.length === 0) {
-    const rowH = 20;
-    drawRowBox(y, rowH);
-    doc.font("Helvetica").fontSize(8.6).fillColor(colors.muted);
-    doc.text("No items", cols.desc.x + 6, y + 5, { width: cols.desc.w - 12, align: "left" });
+    const rowH = minRowH;
+    doc.rect(tableX, y, tableW, rowH).lineWidth(0.8).strokeColor(colors.border).stroke();
+    [cols.desc.x, cols.rate.x, cols.qty.x, cols.amt.x].forEach((vx) => {
+      doc.moveTo(vx, y).lineTo(vx, y + rowH).strokeColor(colors.border).stroke();
+    });
+    doc.font("Helvetica").fontSize(9).fillColor(colors.muted);
+    doc.text("No items", cols.desc.x + 8, y + padY, { width: cols.desc.w - 16, align: "left" });
     y += rowH;
   } else {
-    // ✅ single-page: if items exceed space, stop and show message
-    for (let idx = 0; idx < rows.length; idx++) {
-      const it = rows[idx];
+    rows.forEach((it, idx) => {
       const desc = String(it.description || "Item");
       const qty = Number(it.quantity || 0);
       const rate = Number(it.unit_price || 0);
       const amount = qty * rate;
 
-      doc.font("Helvetica").fontSize(8.6).fillColor(colors.text);
-      const descH = doc.heightOfString(desc, { width: cols.desc.w - 12 });
-      const rowH = Math.max(20, descH + 8);
+      doc.font("Helvetica").fontSize(9.2).fillColor(colors.text);
+      const descH = doc.heightOfString(desc, { width: cols.desc.w - 16, lineGap: 2 });
+      const rowH = Math.max(minRowH, descH + (padY * 2));
 
-      if (y + rowH > maxTableY) {
-        const msgH = 18;
-        if (y + msgH <= maxTableY + 2) {
-          drawRowBox(y, msgH);
-          doc.font("Helvetica").fontSize(8.2).fillColor(colors.muted);
-          doc.text(
-            `+ ${rows.length - idx} more item(s) not shown (one-page invoice).`,
-            cols.desc.x + 6,
-            y + 5,
-            { width: cols.desc.w - 12, align: "left" }
-          );
-          y += msgH;
-        }
-        break;
+      // One-page expectation: if overflow, we still try to keep it (no new page)
+      if (y + rowH > maxY - 220) {
+        // shrink slightly instead of adding new page (keeps one page)
+        doc.fontSize(8.6);
       }
 
-      drawRowBox(y, rowH);
+      doc.rect(tableX, y, tableW, rowH).lineWidth(0.8).strokeColor(colors.border).stroke();
+      [cols.desc.x, cols.rate.x, cols.qty.x, cols.amt.x].forEach((vx) => {
+        doc.moveTo(vx, y).lineTo(vx, y + rowH).strokeColor(colors.border).stroke();
+      });
 
-      const py = y + 5;
-      doc.font("Helvetica").fontSize(8.6).fillColor(colors.text);
-      doc.text(String(idx + 1), cols.item.x + 6, py, { width: cols.item.w - 12, align: "left" });
-      doc.text(desc, cols.desc.x + 6, py, { width: cols.desc.w - 12, align: "left" });
-      doc.text(formatINR(rate), cols.rate.x + 6, py, { width: cols.rate.w - 12, align: "right" });
-      doc.text(String(qty), cols.qty.x + 6, py, { width: cols.qty.w - 12, align: "right" });
-      doc.text(formatINR(amount), cols.amt.x + 6, py, { width: cols.amt.w - 12, align: "right" });
+      const py = y + padY;
+      doc.text(String(idx + 1), cols.item.x + 8, py, { width: cols.item.w - 16, align: "left" });
+      doc.text(desc, cols.desc.x + 8, py, { width: cols.desc.w - 16, align: "left", lineGap: 2 });
+      doc.text(formatINR(rate), cols.rate.x + 8, py, { width: cols.rate.w - 16, align: "right" });
+      doc.text(String(qty), cols.qty.x + 8, py, { width: cols.qty.w - 16, align: "right" });
+      doc.text(formatINR(amount), cols.amt.x + 8, py, { width: cols.amt.w - 16, align: "right" });
 
       y += rowH;
-    }
+    });
   }
 
-  y += GAP_MD;
+  y += GAP.LG;
 
-  // ---- Bank + Totals row (compact) ----
-  const bankGap = 16;
-  const totalsW = 290;
-  const totalsX = M.L + contentW - totalsW;
+  /* ---------------- Bank + Totals (clean, roomy) ---------------- */
+  const bankGap = 18;
+  let totalsW = 300;
+  let totalsX = M.L + contentW - totalsW;
   const bankX = M.L;
   const bankW = totalsX - bankX - bankGap;
 
-  // Totals box (✅ GST breakup; ✅ removed Amount Received & Balance)
-  const totalsBoxH = 78;
+  // Totals box (no Amount Received)
+  const totalsBoxH = 92;
   doc.rect(totalsX, y, totalsW, totalsBoxH).strokeColor(colors.border).lineWidth(0.9).stroke();
 
+  const rowGap = 18;
   const tRow = (label, value, rowIndex, bold = false) => {
-    const ry = y + 10 + rowIndex * 16;
-    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9.5).fillColor(colors.text);
-    doc.text(label, totalsX + 12, ry, { width: 170, align: "left" });
-    doc.text(value, totalsX + 12, ry, { width: totalsW - 24, align: "right" });
+    const ry = y + 14 + rowIndex * rowGap;
+    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(10).fillColor(colors.text);
+    doc.text(label, totalsX + 14, ry, { width: 180, align: "left" });
+    doc.text(value, totalsX + 14, ry, { width: totalsW - 28, align: "right" });
   };
 
   tRow("Subtotal", formatINR(subtotal), 0);
@@ -549,8 +537,8 @@ function drawInvoicePDF(doc, payload) {
   tRow("SGST (9%)", formatINR(sgst), 2);
   tRow("Grand Total", formatINR(total), 3, true);
 
-  // Bank block
-  doc.font("Helvetica-Bold").fontSize(10.5).fillColor(colors.text);
+  // Bank block (more line gap)
+  doc.font("Helvetica-Bold").fontSize(12).fillColor(colors.text);
   doc.text("Bank Details", bankX, y, { width: bankW });
 
   const bankLines = [
@@ -562,14 +550,14 @@ function drawInvoicePDF(doc, payload) {
     ["UPI :", BANK.upi],
   ];
 
-  const labelW = Math.min(112, Math.max(92, Math.round(bankW * 0.42)));
+  const labelW = Math.min(122, Math.max(100, Math.round(bankW * 0.45)));
   const valueX = bankX + labelW;
-  const valueW = Math.max(60, bankW - labelW);
+  const valueW = Math.max(70, bankW - labelW);
 
-  doc.font("Helvetica").fontSize(8.4);
-  let bY = y + 16;
+  doc.font("Helvetica").fontSize(9.2);
+  let bY = y + 20;
 
-  for (const [k, v] of bankLines) {
+  bankLines.forEach(([k, v]) => {
     const key = String(k);
     const val = String(v ?? "");
 
@@ -579,58 +567,51 @@ function drawInvoicePDF(doc, payload) {
     doc.fillColor(colors.text);
     const hVal = doc.heightOfString(val, { width: valueW });
 
-    const rowH = Math.max(12, hKey, hVal);
+    const rowH = Math.max(16, hKey, hVal) + 2;
 
     doc.fillColor(colors.muted).text(key, bankX, bY, { width: labelW, align: "left" });
     doc.fillColor(colors.text).text(val, valueX, bY, { width: valueW, align: "left" });
 
     bY += rowH;
-  }
+  });
 
-  const bankHeight = bY - y;
-  const blockH = Math.max(bankHeight, totalsBoxH);
+  y = Math.max(bY, y + totalsBoxH) + GAP.LG;
 
-  y = y + blockH + GAP_SM;
+  /* ---------------- Notes (more readable) ---------------- */
+  doc.font("Helvetica-Bold").fontSize(11).fillColor(colors.text);
+  doc.text("Notes", M.L, y);
 
-  // ---- Notes (left) + Signature (right) on same row (saves space) ----
-  const sigBoxW = 190;
+  const notesW = Math.round(contentW * 0.62);
+  doc.font("Helvetica").fontSize(9.2).fillColor(colors.text);
+
+  let ny = y + 16;
+  NOTES.forEach((t, i) => {
+    const line = `${i + 1}. ${t}`;
+    const h = doc.heightOfString(line, { width: notesW, lineGap: 2 });
+    doc.text(line, M.L, ny, { width: notesW, align: "left", lineGap: 2 });
+    ny += Math.max(14, h + 2);
+  });
+
+  /* ---------------- Signature (push down to use bottom whitespace) ---------------- */
+  const sigBoxW = 210;
+  const sigBoxH = 64;
   const sigX = pageW - M.R - sigBoxW;
 
-  const notesW = Math.max(220, sigX - M.L - 16);
-  const notesX = M.L;
-  const notesY = y;
+  // Signature block total height:
+  const sigTotalH = 14 + 14 + 14 + 12 + sigBoxH; // approx
+  const sigStartIdeal = footerTopY - sigTotalH - 8; // anchor above footer
+  const sigY = Math.max(sigStartIdeal, y); // push down if there's space
 
-  // Notes (compact; auto-truncate if close to footer)
-  doc.font("Helvetica-Bold").fontSize(9.6).fillColor(colors.text);
-  doc.text("Notes", notesX, notesY, { width: notesW });
-
-  doc.font("Helvetica").fontSize(8.2).fillColor(colors.text);
-
-  let ny = notesY + 12;
-  const notesBottomLimit = maxY - 6;
-
-  for (let i = 0; i < NOTES.length; i++) {
-    const line = `${i + 1}. ${NOTES[i]}`;
-    const h = doc.heightOfString(line, { width: notesW });
-    if (ny + h > notesBottomLimit) break;
-    doc.text(line, notesX, ny, { width: notesW, align: "left" });
-    ny += Math.max(10, h + 1);
-  }
-
-  // Signature (right) - compact
-  const sigY = notesY;
-  const sigBoxH = 52;
-
-  doc.font("Helvetica-Bold").fontSize(9.2).fillColor(colors.text);
+  doc.font("Helvetica-Bold").fontSize(10).fillColor(colors.text);
   doc.text("Chandan G", sigX, sigY, { width: sigBoxW, align: "right" });
 
-  doc.font("Helvetica").fontSize(8.2).fillColor(colors.muted);
-  doc.text("Head of the Company", sigX, sigY + 12, { width: sigBoxW, align: "right" });
+  doc.font("Helvetica").fontSize(9).fillColor(colors.muted);
+  doc.text("Head of the Company", sigX, sigY + 14, { width: sigBoxW, align: "right" });
 
-  doc.font("Helvetica").fontSize(7.6).fillColor(colors.muted);
-  doc.text("Signature / Seal", sigX, sigY + 24, { width: sigBoxW, align: "right" });
+  doc.font("Helvetica").fontSize(8.6).fillColor(colors.muted);
+  doc.text("Signature / Seal", sigX, sigY + 30, { width: sigBoxW, align: "right" });
 
-  const boxY = sigY + 34;
+  const boxY = sigY + 44;
   doc.rect(sigX, boxY, sigBoxW, sigBoxH).strokeColor(colors.border).lineWidth(0.9).stroke();
 
   if (signaturePath) {
@@ -644,6 +625,7 @@ function drawInvoicePDF(doc, payload) {
     } catch {}
   }
 }
+
 
 /* ---------------- Invoices ---------------- */
 

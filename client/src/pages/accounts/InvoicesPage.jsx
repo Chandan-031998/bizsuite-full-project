@@ -400,7 +400,7 @@ const InvoicesPage = () => {
               <div className="mt-2 text-[10px] text-slate-500 space-y-0.5">
                 <div>Mysuru, Karnataka, India</div>
                 <div>info@vertexsoftware.com · +91-9380729687</div>
-                <div>GSTIN: 29ABCDE1234F1Z5</div>
+                <div>GSTIN: 29CNGPC2359M1ZN</div>
               </div>
             </div>
           </div>
