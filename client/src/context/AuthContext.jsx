@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+// client/src/context/AuthContext.jsx
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import api from "../api/axios.js";
 
 const AuthContext = createContext(null);
@@ -12,18 +13,18 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(() => localStorage.getItem("bizsuite_token"));
   const [loading, setLoading] = useState(false);
 
-  // Attach token to axios automatically
+  // Keep token in localStorage + axios
   useEffect(() => {
     if (token) {
-      api.defaults.headers.common.Authorization = `Bearer ${token}`;
       localStorage.setItem("bizsuite_token", token);
+      api.defaults.headers.common.Authorization = `Bearer ${token}`;
     } else {
-      delete api.defaults.headers.common.Authorization;
       localStorage.removeItem("bizsuite_token");
+      delete api.defaults.headers.common.Authorization;
     }
   }, [token]);
 
-  // Persist user
+  // Keep user in localStorage
   useEffect(() => {
     if (user) {
       localStorage.setItem("bizsuite_user", JSON.stringify(user));
@@ -42,8 +43,15 @@ export const AuthProvider = ({ children }) => {
         password: String(password || ""),
       });
 
-      setUser(res.data.user);
-      setToken(res.data.token);
+      // Expecting: { token, user }
+      setUser(res.data?.user || null);
+      setToken(res.data?.token || null);
+
+      // Also set header immediately
+      if (res.data?.token) {
+        api.defaults.headers.common.Authorization = `Bearer ${res.data.token}`;
+      }
+
       return true;
     } catch (err) {
       console.error("Login failed:", err?.response?.data || err.message);
@@ -56,24 +64,22 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     setUser(null);
     setToken(null);
-    // Optional: clear axios header immediately
     delete api.defaults.headers.common.Authorization;
   };
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        token,
-        loading,
-        isAuthenticated: Boolean(user && token),
-        login,
-        logout,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      user,
+      token,
+      loading,
+      isAuthenticated: Boolean(user && token),
+      login,
+      logout,
+    }),
+    [user, token, loading]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => useContext(AuthContext);

@@ -2,7 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import api from "../../api/axios.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 
-const QUOTES_URL = "/accounts/quotations";
+// ✅ IMPORTANT:
+// Your backend has /api/quotations (NOT /api/accounts/quotations)
+// Because api baseURL already includes "/api", we use "/quotations" here.
+const QUOTES_URL = "/quotations";
 const CLIENTS_URL = "/accounts/clients";
 
 const formatCurrency = (v) =>
@@ -13,8 +16,10 @@ const formatCurrency = (v) =>
 
 const statusBadgeClass = (status) => {
   const s = (status || "").toLowerCase();
-  if (s === "accepted" || s === "won") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  if (s === "rejected" || s === "lost") return "bg-rose-50 text-rose-700 border-rose-200";
+  if (s === "accepted" || s === "won")
+    return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (s === "rejected" || s === "lost")
+    return "bg-rose-50 text-rose-700 border-rose-200";
   if (s === "sent") return "bg-sky-50 text-sky-700 border-sky-200";
   return "bg-slate-50 text-slate-700 border-slate-200";
 };
@@ -46,7 +51,7 @@ const QuotationsPage = () => {
   const { user } = useAuth();
   const role = user?.role;
 
-  // ✅ Allow Admin + Accounts to manage. Sales = view only.
+  // ✅ Admin + Accounts can manage. Sales = view-only
   const canManage = role === "admin" || role === "accounts";
 
   const [rows, setRows] = useState([]);
@@ -74,12 +79,12 @@ const QuotationsPage = () => {
     setLoading(true);
     setError("");
     try {
-      // ✅ Always load quotations
+      // ✅ quotations
       const quotesRes = await api.get(QUOTES_URL);
       const quoteData = quotesRes.data || [];
       setRows(quoteData);
 
-      // ✅ Load clients only if user can manage (form dropdown needs clients)
+      // ✅ clients only needed for create/edit form
       if (canManage) {
         const clientsRes = await api.get(CLIENTS_URL);
         setClients(clientsRes.data || []);
@@ -87,7 +92,6 @@ const QuotationsPage = () => {
         setClients([]);
       }
 
-      // ✅ Ensure quote number exists
       setForm((prev) => {
         if (prev.quote_number) return prev;
         return { ...prev, quote_number: makeNextQuoteNumber(quoteData) };
@@ -97,7 +101,11 @@ const QuotationsPage = () => {
       const status = err?.response?.status;
       const msg =
         err?.response?.data?.message ||
-        (status === 403 ? "Forbidden: insufficient role" : "Failed to load quotations");
+        (status === 404
+          ? "API endpoint not found for quotations"
+          : status === 403
+          ? "Forbidden: insufficient role"
+          : "Failed to load quotations");
       setError(msg);
     } finally {
       setLoading(false);
@@ -116,7 +124,6 @@ const QuotationsPage = () => {
 
   const handleEditClick = (quote) => {
     if (!canManage) return;
-
     setForm({
       id: quote.id,
       client_id: quote.client_id || "",
@@ -138,8 +145,7 @@ const QuotationsPage = () => {
       if (form.id === quote.id) resetForm();
     } catch (err) {
       console.error(err);
-      const msg = err?.response?.data?.message || "Failed to delete quotation";
-      setError(msg);
+      setError(err?.response?.data?.message || "Failed to delete quotation");
     }
   };
 
@@ -195,6 +201,7 @@ const QuotationsPage = () => {
             Prepare quotes and track which ones are accepted and can be converted into invoices.
           </p>
         </div>
+
         <button
           type="button"
           onClick={load}
@@ -210,7 +217,7 @@ const QuotationsPage = () => {
         </div>
       )}
 
-      {/* Admin/Accounts: create / edit form */}
+      {/* Manage form */}
       {canManage && (
         <div className="bg-white/90 border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
           <div className="flex items-center justify-between mb-1">
@@ -218,9 +225,7 @@ const QuotationsPage = () => {
               <h3 className="text-xs font-semibold text-slate-900">
                 {form.id ? "Edit quotation" : "Create quotation"}
               </h3>
-              <p className="text-[11px] text-slate-500">
-                Basic quote details.
-              </p>
+              <p className="text-[11px] text-slate-500">Basic quote details.</p>
             </div>
             {form.id && (
               <div className="text-[11px] text-slate-500">
@@ -230,7 +235,6 @@ const QuotationsPage = () => {
           </div>
 
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-3 text-[11px]">
-            {/* Client */}
             <div className="md:col-span-2">
               <label className="block mb-1 text-slate-600">Client</label>
               <select
@@ -248,7 +252,6 @@ const QuotationsPage = () => {
               </select>
             </div>
 
-            {/* Quote number */}
             <div>
               <label className="block mb-1 text-slate-600">Quote #</label>
               <input
@@ -260,7 +263,6 @@ const QuotationsPage = () => {
               />
             </div>
 
-            {/* Date */}
             <div>
               <label className="block mb-1 text-slate-600">Date</label>
               <input
@@ -272,7 +274,6 @@ const QuotationsPage = () => {
               />
             </div>
 
-            {/* Amount */}
             <div>
               <label className="block mb-1 text-slate-600">Amount (tax-inclusive)</label>
               <input
@@ -287,7 +288,6 @@ const QuotationsPage = () => {
               />
             </div>
 
-            {/* Status */}
             <div>
               <label className="block mb-1 text-slate-600">Status</label>
               <select
@@ -303,7 +303,6 @@ const QuotationsPage = () => {
               </select>
             </div>
 
-            {/* Notes */}
             <div className="md:col-span-3">
               <label className="block mb-1 text-slate-600">Notes</label>
               <textarea
@@ -312,11 +311,10 @@ const QuotationsPage = () => {
                 value={form.notes}
                 onChange={handleFormChange}
                 className="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-900 text-[11px] outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
-                placeholder="Optional notes or scope summary"
+                placeholder="Optional notes"
               />
             </div>
 
-            {/* Actions */}
             <div className="md:col-span-4 flex justify-end gap-2 pt-2">
               {form.id && (
                 <button
@@ -332,7 +330,7 @@ const QuotationsPage = () => {
                 disabled={saving}
                 className="px-4 py-2 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-semibold disabled:opacity-60 text-[11px]"
               >
-                {saving ? (form.id ? "Updating…" : "Saving…") : (form.id ? "Update quotation" : "Save quotation")}
+                {saving ? (form.id ? "Updating…" : "Saving…") : form.id ? "Update quotation" : "Save quotation"}
               </button>
             </div>
           </form>
@@ -352,6 +350,7 @@ const QuotationsPage = () => {
               {canManage && <th className="px-3 py-2 text-right font-medium">Actions</th>}
             </tr>
           </thead>
+
           <tbody>
             {loading && (
               <tr>
@@ -363,10 +362,7 @@ const QuotationsPage = () => {
 
             {!loading &&
               rows.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-b border-slate-100 last:border-0 hover:bg-sky-50/40 transition-colors"
-                >
+                <tr key={r.id} className="border-b border-slate-100 last:border-0 hover:bg-sky-50/40">
                   <td className="px-3 py-2 text-slate-900 font-medium">{r.quote_number}</td>
                   <td className="px-3 py-2 text-slate-700">{r.client_name || "—"}</td>
                   <td className="px-3 py-2 text-slate-500">{r.quote_date || "—"}</td>

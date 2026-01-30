@@ -1,3 +1,4 @@
+// client/src/pages/crm/LeadsPage.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "../../api/axios.js";
 import { useAuth } from "../../context/AuthContext.jsx";
@@ -19,15 +20,7 @@ const LeadsPage = () => {
   const canDeleteLead = role === "admin";
   const canEditLead = role === "admin" || role === "sales";
 
-  const [rows, setRows] = useState([]);
-  const [stats, setStats] = useState(null);
-  const [creating, setCreating] = useState(false);
-  const [savingEdit, setSavingEdit] = useState(false);
-
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const [form, setForm] = useState({
+  const emptyLeadForm = {
     name: "",
     company: "",
     email: "",
@@ -35,12 +28,21 @@ const LeadsPage = () => {
     place: "",
     source: "",
     stage: "New",
+    assigned_to: null, // ✅ IMPORTANT (prevents undefined in PUT)
     extra1: "",
     extra2: "",
-  });
+  };
 
+  const [rows, setRows] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const [form, setForm] = useState({ ...emptyLeadForm });
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ ...form });
+  const [editForm, setEditForm] = useState({ ...emptyLeadForm });
 
   const [filters, setFilters] = useState({
     search: "",
@@ -82,18 +84,11 @@ const LeadsPage = () => {
 
     setCreating(true);
     try {
-      await axios.post("/leads", form);
-      setForm({
-        name: "",
-        company: "",
-        email: "",
-        phone: "",
-        place: "",
-        source: "",
-        stage: "New",
-        extra1: "",
-        extra2: "",
-      });
+      // ✅ ensure assigned_to exists in payload
+      const payload = { ...form, assigned_to: form.assigned_to ?? null };
+      await axios.post("/leads", payload);
+
+      setForm({ ...emptyLeadForm });
       await load();
     } catch (err) {
       console.error(err);
@@ -113,6 +108,7 @@ const LeadsPage = () => {
       place: lead.place || "",
       source: lead.source || "",
       stage: lead.stage || "New",
+      assigned_to: lead.assigned_to ?? null, // ✅ IMPORTANT
       extra1: lead.extra1 || "",
       extra2: lead.extra2 || "",
     });
@@ -120,7 +116,7 @@ const LeadsPage = () => {
 
   const cancelEdit = () => {
     setEditingId(null);
-    setEditForm({ ...form });
+    setEditForm({ ...emptyLeadForm });
   };
 
   const handleEditChange = (e) => {
@@ -131,7 +127,10 @@ const LeadsPage = () => {
   const saveEdit = async (id) => {
     setSavingEdit(true);
     try {
-      await axios.put(`/leads/${id}`, editForm);
+      // ✅ never send undefined
+      const payload = { ...editForm, assigned_to: editForm.assigned_to ?? null };
+      await axios.put(`/leads/${id}`, payload);
+
       await load();
       cancelEdit();
     } catch (err) {
@@ -360,7 +359,8 @@ const LeadsPage = () => {
 
           <div className="flex flex-col justify-end">
             <div className="text-[10px] text-slate-500 mb-1">
-              Lead added by: <span className="text-sky-600 font-medium">{user?.name}</span>
+              Lead added by:{" "}
+              <span className="text-sky-600 font-medium">{user?.name}</span>
             </div>
             <button
               type="submit"
@@ -387,7 +387,9 @@ const LeadsPage = () => {
               <th className="px-3 py-2 text-left">Field 1</th>
               <th className="px-3 py-2 text-left">Field 2</th>
               <th className="px-3 py-2 text-left">Created</th>
-              {(canEditLead || canDeleteLead) && <th className="px-3 py-2 text-left">Actions</th>}
+              {(canEditLead || canDeleteLead) && (
+                <th className="px-3 py-2 text-left">Actions</th>
+              )}
             </tr>
           </thead>
 
@@ -435,39 +437,91 @@ const LeadsPage = () => {
                     )}
                   </td>
 
-                  <td className="px-3 py-2">{isEditing ? (
-                    <input name="phone" value={editForm.phone} onChange={handleEditChange}
-                      className="w-full px-2 py-1 rounded-lg bg-white border border-slate-200" />
-                  ) : (r.phone || "-")}</td>
+                  <td className="px-3 py-2">
+                    {isEditing ? (
+                      <input
+                        name="phone"
+                        value={editForm.phone}
+                        onChange={handleEditChange}
+                        className="w-full px-2 py-1 rounded-lg bg-white border border-slate-200"
+                      />
+                    ) : (
+                      r.phone || "-"
+                    )}
+                  </td>
 
-                  <td className="px-3 py-2">{isEditing ? (
-                    <input name="place" value={editForm.place} onChange={handleEditChange}
-                      className="w-full px-2 py-1 rounded-lg bg-white border border-slate-200" />
-                  ) : (r.place || "-")}</td>
+                  <td className="px-3 py-2">
+                    {isEditing ? (
+                      <input
+                        name="place"
+                        value={editForm.place}
+                        onChange={handleEditChange}
+                        className="w-full px-2 py-1 rounded-lg bg-white border border-slate-200"
+                      />
+                    ) : (
+                      r.place || "-"
+                    )}
+                  </td>
 
-                  <td className="px-3 py-2">{isEditing ? (
-                    <select name="stage" value={editForm.stage} onChange={handleEditChange}
-                      className="w-full px-2 py-1 rounded-lg bg-white border border-slate-200">
-                      {stageOrder.map((st) => <option key={st} value={st}>{st}</option>)}
-                    </select>
-                  ) : (r.stage || "-")}</td>
+                  <td className="px-3 py-2">
+                    {isEditing ? (
+                      <select
+                        name="stage"
+                        value={editForm.stage}
+                        onChange={handleEditChange}
+                        className="w-full px-2 py-1 rounded-lg bg-white border border-slate-200"
+                      >
+                        {stageOrder.map((st) => (
+                          <option key={st} value={st}>
+                            {st}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      r.stage || "-"
+                    )}
+                  </td>
 
-                  <td className="px-3 py-2">{isEditing ? (
-                    <input name="source" value={editForm.source} onChange={handleEditChange}
-                      className="w-full px-2 py-1 rounded-lg bg-white border border-slate-200" />
-                  ) : (r.source || "-")}</td>
+                  <td className="px-3 py-2">
+                    {isEditing ? (
+                      <input
+                        name="source"
+                        value={editForm.source}
+                        onChange={handleEditChange}
+                        className="w-full px-2 py-1 rounded-lg bg-white border border-slate-200"
+                      />
+                    ) : (
+                      r.source || "-"
+                    )}
+                  </td>
 
                   <td className="px-3 py-2">{r.added_by_name || "-"}</td>
 
-                  <td className="px-3 py-2">{isEditing ? (
-                    <input name="extra1" value={editForm.extra1} onChange={handleEditChange}
-                      className="w-full px-2 py-1 rounded-lg bg-white border border-slate-200" />
-                  ) : (r.extra1 || "-")}</td>
+                  <td className="px-3 py-2">
+                    {isEditing ? (
+                      <input
+                        name="extra1"
+                        value={editForm.extra1}
+                        onChange={handleEditChange}
+                        className="w-full px-2 py-1 rounded-lg bg-white border border-slate-200"
+                      />
+                    ) : (
+                      r.extra1 || "-"
+                    )}
+                  </td>
 
-                  <td className="px-3 py-2">{isEditing ? (
-                    <input name="extra2" value={editForm.extra2} onChange={handleEditChange}
-                      className="w-full px-2 py-1 rounded-lg bg-white border border-slate-200" />
-                  ) : (r.extra2 || "-")}</td>
+                  <td className="px-3 py-2">
+                    {isEditing ? (
+                      <input
+                        name="extra2"
+                        value={editForm.extra2}
+                        onChange={handleEditChange}
+                        className="w-full px-2 py-1 rounded-lg bg-white border border-slate-200"
+                      />
+                    ) : (
+                      r.extra2 || "-"
+                    )}
+                  </td>
 
                   <td className="px-3 py-2 text-slate-500">{formatDate(r.created_at)}</td>
 
@@ -521,13 +575,8 @@ const LeadsPage = () => {
 
             {filteredRows.length === 0 && (
               <tr>
-                <td
-                  colSpan={11}
-                  className="px-3 py-6 text-center text-slate-500"
-                >
-                  {rows.length === 0
-                    ? "No leads captured yet."
-                    : "No leads match the current filters."}
+                <td colSpan={11} className="px-3 py-6 text-center text-slate-500">
+                  {rows.length === 0 ? "No leads captured yet." : "No leads match the current filters."}
                 </td>
               </tr>
             )}

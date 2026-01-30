@@ -43,19 +43,15 @@ export const authenticateToken = (req, res, next) => {
   });
 };
 
-export const authorizeRoles = (...roles) => (req, res, next) => {
-  if (!req.user) return res.status(401).json({ message: "Unauthenticated" });
+export const authorizeRoles = (...allowedRoles) => {
+  const allowed = allowedRoles.map((r) => String(r).toLowerCase());
 
-  const allowed = roles.map((r) => String(r).toLowerCase());
-  const yourRole = String(req.user.role || "user").toLowerCase();
+  return (req, res, next) => {
+    const role = String(req.user?.role || "").toLowerCase();
 
-  if (!allowed.includes(yourRole)) {
-    return res.status(403).json({
-      message: "Forbidden: insufficient role",
-      requiredRoles: allowed,
-      yourRole,
-    });
-  }
-
-  next();
+    if (!role || !allowed.includes(role)) {
+      return res.status(403).json({ message: "Forbidden: insufficient role" });
+    }
+    next();
+  };
 };

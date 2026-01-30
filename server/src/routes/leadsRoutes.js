@@ -12,7 +12,18 @@ router.use(authenticateToken);
  * Admin only   : delete
  */
 
-// ✅ Stats FIRST (prevents future route collisions)
+// 🔒 helper: mysql2 does NOT allow undefined in bind params
+const toNull = (v) => (typeof v === "undefined" ? null : v);
+
+// Optional: normalize allowed stages to avoid junk values
+const ALLOWED_STAGES = ["New", "Contacted", "Follow-up", "Proposal Sent", "Won", "Lost"];
+const normaliseStage = (stage) => {
+  if (typeof stage === "undefined" || stage === null) return null; // means "do not change" in COALESCE
+  const s = String(stage).trim();
+  return ALLOWED_STAGES.includes(s) ? s : null;
+};
+
+// ✅ Stats FIRST
 router.get("/stats/summary", authorizeRoles("admin", "sales"), async (_req, res) => {
   try {
     const stages = await all(
@@ -53,8 +64,11 @@ router.post("/", authorizeRoles("admin", "sales"), async (req, res) => {
       extra2,
     } = req.body;
 
-    if (!name) return res.status(400).json({ message: "Name is required" });
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ message: "Name is required" });
+    }
 
+    const safeStage = ALLOWED_STAGES.includes(String(stage)) ? String(stage) : "New";
     const addedBy = req.user.id;
 
     const result = await run(
@@ -62,21 +76,22 @@ router.post("/", authorizeRoles("admin", "sales"), async (req, res) => {
         (name, email, phone, company, place, source, stage, added_by, assigned_to, extra1, extra2)
        VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       [
-        name,
-        email || null,
-        phone || null,
-        company || null,
-        place || null,
-        source || null,
-        stage,
+        String(name).trim(),
+        toNull(email),
+        toNull(phone),
+        toNull(company),
+        toNull(place),
+        toNull(source),
+        safeStage,
         addedBy,
-        assigned_to || null,
-        extra1 || null,
-        extra2 || null,
+        toNull(assigned_to),
+        toNull(extra1),
+        toNull(extra2),
       ]
     );
 
-    res.status(201).json({ id: result.id });
+    const id = result?.insertId || result?.lastID || result?.id;
+    res.status(201).json({ id });
   } catch (err) {
     console.error("POST /leads failed:", err);
     res.status(500).json({ message: "Failed to create lead" });
@@ -97,7 +112,6 @@ router.get("/", authorizeRoles("admin", "sales"), async (_req, res) => {
        ORDER BY l.created_at DESC`,
       []
     );
-
     res.json(rows);
   } catch (err) {
     console.error("GET /leads failed:", err);
@@ -124,6 +138,12 @@ router.put("/:id", authorizeRoles("admin", "sales"), async (req, res) => {
     const existing = await get(`SELECT id FROM leads WHERE id = ?`, [req.params.id]);
     if (!existing) return res.status(404).json({ message: "Lead not found" });
 
+    // If stage is provided but invalid, reject (better than silently setting null)
+    const safeStage = normaliseStage(stage);
+    if (typeof stage !== "undefined" && stage !== null && safeStage === null) {
+      return res.status(400).json({ message: `Invalid stage. Allowed: ${ALLOWED_STAGES.join(", ")}` });
+    }
+
     await run(
       `UPDATE leads
        SET name        = COALESCE(?, name),
@@ -138,23 +158,25 @@ router.put("/:id", authorizeRoles("admin", "sales"), async (req, res) => {
            extra2      = COALESCE(?, extra2)
        WHERE id = ?`,
       [
-        name,
-        email,
-        phone,
-        company,
-        place,
-        source,
-        stage,
-        assigned_to,
-        extra1,
-        extra2,
+        toNull(name),
+        toNull(email),
+        toNull(phone),
+        toNull(company),
+        toNull(place),
+        toNull(source),
+        safeStage,                 // IMPORTANT: stage normalized (or null)
+        toNull(assigned_to),       // IMPORTANT: undefined -> null
+        toNull(extra1),
+        toNull(extra2),
         req.params.id,
       ]
     );
 
-    res.json({ id: req.params.id });
+    res.json({ id: Number(req.params.id), message: "Lead updated" });
   } catch (err) {
     console.error("PUT /leads/:id failed:", err);
+    // If you want to quickly confirm undefined issue:
+    // console.error("BODY:", req.body);
     res.status(500).json({ message: "Failed to update lead" });
   }
 });
@@ -183,10 +205,11 @@ router.post("/:id/activities", authorizeRoles("admin", "sales"), async (req, res
     const result = await run(
       `INSERT INTO lead_activities (lead_id, note, next_follow_up_date)
        VALUES (?,?,?)`,
-      [req.params.id, note, next_follow_up_date || null]
+      [req.params.id, toNull(note), toNull(next_follow_up_date)]
     );
 
-    res.status(201).json({ id: result.id });
+    const id = result?.insertId || result?.lastID || result?.id;
+    res.status(201).json({ id });
   } catch (err) {
     console.error("POST /leads/:id/activities failed:", err);
     res.status(500).json({ message: "Failed to add activity" });
