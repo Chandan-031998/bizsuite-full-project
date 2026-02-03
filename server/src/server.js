@@ -4,7 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { initDb, seedAdmin, dbContextMiddleware } from "./db.js";
+import { initDb, seedAdmin, dbContextMiddleware, get } from "./db.js"; // ✅ get used for /api/ready
 
 import authRoutes from "./routes/authRoutes.js";
 import usersRoutes from "./routes/usersRoutes.js";
@@ -25,8 +25,7 @@ if (String(process.env.TRUST_PROXY || "0") === "1") {
 
 const PORT = process.env.PORT || 4000;
 
-// ✅ Your env has CORS_ORIGINS; old code used CLIENT_URL.
-// This supports both.
+// ✅ Support both env vars
 const originsRaw = process.env.CORS_ORIGINS || process.env.CLIENT_URL || "";
 const allowedOrigins = originsRaw
   .split(",")
@@ -35,9 +34,15 @@ const allowedOrigins = originsRaw
 
 const corsOptions = {
   origin: (origin, cb) => {
+    // allow non-browser tools
     if (!origin) return cb(null, true);
+
+    // if empty, allow all (dev-friendly)
     if (allowedOrigins.length === 0) return cb(null, true);
+
+    // allow exact match
     if (allowedOrigins.includes(origin)) return cb(null, true);
+
     return cb(new Error("CORS blocked: " + origin), false);
   },
   credentials: true,
@@ -55,7 +60,23 @@ app.use("/uploads", express.static("uploads"));
 // ✅ IMPORTANT: enables proper transactions per request
 app.use(dbContextMiddleware);
 
-app.get("/api/health", (_req, res) => res.json({ ok: true }));
+// ✅ Fast health check (no DB) – used to warm up Render
+app.get("/api/health", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ ok: true, ts: Date.now() });
+});
+
+// ✅ Ready check (DB check) – helpful for debugging DB connectivity
+app.get("/api/ready", async (_req, res) => {
+  try {
+    // quick lightweight query
+    await get("SELECT 1 AS one", []);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ ok: true, db: true, ts: Date.now() });
+  } catch (e) {
+    res.status(503).json({ ok: false, db: false, message: e?.message || "DB not ready" });
+  }
+});
 
 app.use("/api/auth", authRoutes);
 
@@ -75,7 +96,10 @@ app.use("/api/dashboard", dashboardRoutes);
 // ✅ global error handler
 app.use((err, _req, res, _next) => {
   console.error("UNHANDLED ERROR:", err);
-  res.status(500).json({ message: "Internal Server Error", detail: err?.message });
+  res.status(500).json({
+    message: "Internal Server Error",
+    detail: err?.message,
+  });
 });
 
 initDb()
