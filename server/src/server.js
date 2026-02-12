@@ -4,7 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { initDb, seedAdmin, dbContextMiddleware, get } from "./db.js"; // ✅ get used for /api/ready
+import { initDb, seedAdmin, dbContextMiddleware, get } from "./db.js";
 
 import authRoutes from "./routes/authRoutes.js";
 import usersRoutes from "./routes/usersRoutes.js";
@@ -25,29 +25,56 @@ if (String(process.env.TRUST_PROXY || "0") === "1") {
 
 const PORT = process.env.PORT || 4000;
 
-// ✅ Support both env vars
+/**
+ * ✅ CORS FIX
+ * Set on Render env:
+ * CORS_ORIGINS=https://accounts.vertexsoftware.in,http://localhost:5173
+ *
+ * - Allows exact origins from env
+ * - Allows any subdomain of vertexsoftware.in
+ * - Exposes Content-Disposition so browser can read PDF filename
+ */
 const originsRaw = process.env.CORS_ORIGINS || process.env.CLIENT_URL || "";
 const allowedOrigins = originsRaw
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true; // curl/postman/server-to-server
+  if (allowedOrigins.length === 0) return true; // dev-friendly fallback
+
+  if (allowedOrigins.includes(origin)) return true;
+
+  // Allow any subdomain of vertexsoftware.in (accounts., crm., etc.)
+  try {
+    const u = new URL(origin);
+    const host = u.hostname.toLowerCase();
+    if (host === "vertexsoftware.in" || host.endsWith(".vertexsoftware.in")) return true;
+  } catch {
+    // ignore invalid origin strings
+  }
+
+  return false;
+};
+
 const corsOptions = {
   origin: (origin, cb) => {
-    // allow non-browser tools
-    if (!origin) return cb(null, true);
+    const ok = isAllowedOrigin(origin);
+    if (ok) return cb(null, true);
 
-    // if empty, allow all (dev-friendly)
-    if (allowedOrigins.length === 0) return cb(null, true);
-
-    // allow exact match
-    if (allowedOrigins.includes(origin)) return cb(null, true);
-
+    // IMPORTANT: send an error so we know in logs when origin is blocked
     return cb(new Error("CORS blocked: " + origin), false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
+
+  // ✅ MUST for PDF filename access from browser
+  exposedHeaders: ["Content-Disposition", "Content-Type"],
+
+  maxAge: 86400,
+  optionsSuccessStatus: 204,
 };
 
 app.use(cors(corsOptions));
@@ -69,12 +96,13 @@ app.get("/api/health", (_req, res) => {
 // ✅ Ready check (DB check) – helpful for debugging DB connectivity
 app.get("/api/ready", async (_req, res) => {
   try {
-    // quick lightweight query
     await get("SELECT 1 AS one", []);
     res.setHeader("Cache-Control", "no-store");
     res.json({ ok: true, db: true, ts: Date.now() });
   } catch (e) {
-    res.status(503).json({ ok: false, db: false, message: e?.message || "DB not ready" });
+    res
+      .status(503)
+      .json({ ok: false, db: false, message: e?.message || "DB not ready" });
   }
 });
 
@@ -93,9 +121,15 @@ app.use("/api/notifications", notificationsRoutes);
 app.use("/api/quotations", quotationsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
-// ✅ global error handler
+// ✅ global error handler (handles CORS errors too)
 app.use((err, _req, res, _next) => {
   console.error("UNHANDLED ERROR:", err);
+
+  // if CORS blocked, respond 403 (clear)
+  if (String(err?.message || "").startsWith("CORS blocked:")) {
+    return res.status(403).json({ message: err.message });
+  }
+
   res.status(500).json({
     message: "Internal Server Error",
     detail: err?.message,
@@ -105,7 +139,14 @@ app.use((err, _req, res, _next) => {
 initDb()
   .then(seedAdmin)
   .then(() => {
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    const server = app.listen(PORT, () =>
+      console.log(`Server running on port ${PORT}`)
+    );
+
+    // ✅ Helps long PDF requests / slow cold-start situations
+    server.requestTimeout = 2 * 60 * 1000; // 2 minutes
+    server.headersTimeout = 2 * 60 * 1000; // 2 minutes
+    server.keepAliveTimeout = 65 * 1000; // keep-alive
   })
   .catch((err) => {
     console.error("DB init failed", err);

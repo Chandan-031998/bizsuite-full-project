@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import axios from "../../api/axios.js";
+import api, { warmUpServer } from "../../api/axios.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 
 const emptyLineItem = { service: "", description: "", qty: 1, rate: 0, tax: 0 };
@@ -57,6 +57,44 @@ const statusClass = (status) => {
     return "bg-amber-50 text-amber-700 border border-amber-200";
   return "bg-rose-50 text-rose-700 border border-rose-200";
 };
+
+/* =========================
+   ✅ PDF DOWNLOAD HELPERS
+========================= */
+const getFilenameFromDisposition = (cd) => {
+  if (!cd) return null;
+  const m = /filename\*=UTF-8''([^;]+)|filename="?([^"]+)"?/i.exec(cd);
+  return decodeURIComponent(m?.[1] || m?.[2] || "").trim() || null;
+};
+
+async function downloadInvoicePdf(invoiceId, invoiceNumber) {
+  // Helps Render cold start (safe even if it fails)
+  await warmUpServer();
+
+  const res = await api.get(`/accounts/invoices/${invoiceId}/pdf`, {
+    responseType: "blob",
+    timeout: 120000,
+    headers: { Accept: "application/pdf" },
+  });
+
+  const blob = new Blob([res.data], { type: "application/pdf" });
+  const url = window.URL.createObjectURL(blob);
+
+  const cd = res.headers?.["content-disposition"];
+  const filename =
+    getFilenameFromDisposition(cd) ||
+    `Invoice-${invoiceNumber || invoiceId}.pdf`;
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  // revoke after short delay to avoid Safari edge issues
+  setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+}
 
 const InvoicesPage = () => {
   const { user } = useAuth();
@@ -123,9 +161,9 @@ const InvoicesPage = () => {
     setLoading(true);
     try {
       const [clientsRes, invoicesRes, nextRes] = await Promise.all([
-        axios.get("/accounts/clients"),
-        axios.get("/accounts/invoices"),
-        axios.get("/accounts/invoices/next-number"),
+        api.get("/accounts/clients"),
+        api.get("/accounts/invoices"),
+        api.get("/accounts/invoices/next-number"),
       ]);
 
       const clientsData = clientsRes.data || [];
@@ -259,11 +297,11 @@ const InvoicesPage = () => {
     try {
       if (editingId) {
         // 1) update invoice fields + status + total
-        await axios.put(`/accounts/invoices/${editingId}`, payload);
+        await api.put(`/accounts/invoices/${editingId}`, payload);
 
         // 2) record payment (optional)
         if (paymentAmount > 0) {
-          await axios.post(`/accounts/invoices/${editingId}/payments`, {
+          await api.post(`/accounts/invoices/${editingId}/payments`, {
             payment_date: todayStr,
             amount: paymentAmount,
             mode: "manual",
@@ -271,7 +309,7 @@ const InvoicesPage = () => {
         }
       } else {
         // create invoice
-        await axios.post("/accounts/invoices", payload);
+        await api.post("/accounts/invoices", payload);
       }
 
       await loadInitial();
@@ -312,7 +350,7 @@ const InvoicesPage = () => {
     }));
 
     try {
-      const res = await axios.get(`/accounts/invoices/${invoice.id}`);
+      const res = await api.get(`/accounts/invoices/${invoice.id}`);
       const apiItems = res.data?.items || [];
 
       if (apiItems.length) {
@@ -355,7 +393,7 @@ const InvoicesPage = () => {
     if (!window.confirm("Delete this invoice?")) return;
 
     try {
-      await axios.delete(`/accounts/invoices/${id}`);
+      await api.delete(`/accounts/invoices/${id}`);
       await loadInitial();
       if (editingId === id) resetForm();
     } catch (err) {
@@ -366,19 +404,19 @@ const InvoicesPage = () => {
 
   const handleDownloadPdf = async (id, invoiceNumber) => {
     try {
-      const res = await axios.get(`/accounts/invoices/${id}/pdf`, {
-        responseType: "blob",
-      });
-      const blob = new Blob([res.data], { type: "application/pdf" });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `Invoice-${invoiceNumber || id}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      await downloadInvoicePdf(id, invoiceNumber);
     } catch (err) {
       console.error(err);
-      alert("Failed to download invoice PDF");
+
+      const isNetwork =
+        String(err?.message || "").toLowerCase().includes("network") ||
+        !err?.response;
+
+      alert(
+        isNetwork
+          ? "PDF download blocked (CORS or server sleeping). Fix backend CORS_ORIGINS + redeploy, then retry."
+          : err?.response?.data?.message || "Failed to download invoice PDF"
+      );
     }
   };
 
@@ -466,9 +504,7 @@ const InvoicesPage = () => {
               </div>
 
               <div>
-                <label className="block mb-1 text-slate-600">
-                  Invoice number
-                </label>
+                <label className="block mb-1 text-slate-600">Invoice number</label>
                 <input
                   name="invoiceNumber"
                   value={form.invoiceNumber}
@@ -518,9 +554,7 @@ const InvoicesPage = () => {
                   <thead className="text-slate-500 bg-slate-50">
                     <tr>
                       <th className="px-3 py-2 text-left w-[18%]">Service</th>
-                      <th className="px-3 py-2 text-left w-[32%]">
-                        Description
-                      </th>
+                      <th className="px-3 py-2 text-left w-[32%]">Description</th>
                       <th className="px-3 py-2 text-right w-[8%]">Qty</th>
                       <th className="px-3 py-2 text-right w-[12%]">Rate</th>
                       <th className="px-3 py-2 text-right w-[8%]">Tax %</th>
@@ -552,11 +586,7 @@ const InvoicesPage = () => {
                             <input
                               value={item.description}
                               onChange={(e) =>
-                                handleItemChange(
-                                  index,
-                                  "description",
-                                  e.target.value
-                                )
+                                handleItemChange(index, "description", e.target.value)
                               }
                               className="w-full px-2 py-1 rounded-lg bg-white border border-slate-300 text-[11px] outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
                               placeholder="Eg: Website development"
@@ -645,9 +675,7 @@ const InvoicesPage = () => {
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <label className="block mb-1 text-slate-600">
-                          Status
-                        </label>
+                        <label className="block mb-1 text-slate-600">Status</label>
                         <select
                           value={editStatus}
                           onChange={(e) => setEditStatus(e.target.value)}
@@ -684,8 +712,8 @@ const InvoicesPage = () => {
                         }
                       />
                       <div className="mt-1 text-[10px] text-slate-500">
-                        Tip: If you select Completed without entering amount,
-                        remaining will be auto-paid.
+                        Tip: If you select Completed without entering amount, remaining
+                        will be auto-paid.
                       </div>
                     </div>
                   </div>
