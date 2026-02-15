@@ -16,6 +16,9 @@ import notificationsRoutes from "./routes/notificationsRoutes.js";
 import quotationsRoutes from "./routes/quotationsRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 
+// ✅ NEW
+import certificatesRoutes from "./routes/certificatesRoutes.js";
+
 const app = express();
 
 // Use TRUST_PROXY=1 only if behind reverse proxy / cPanel
@@ -62,17 +65,12 @@ const corsOptions = {
   origin: (origin, cb) => {
     const ok = isAllowedOrigin(origin);
     if (ok) return cb(null, true);
-
-    // IMPORTANT: send an error so we know in logs when origin is blocked
     return cb(new Error("CORS blocked: " + origin), false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
-
-  // ✅ MUST for PDF filename access from browser
   exposedHeaders: ["Content-Disposition", "Content-Type"],
-
   maxAge: 86400,
   optionsSuccessStatus: 204,
 };
@@ -87,22 +85,20 @@ app.use("/uploads", express.static("uploads"));
 // ✅ IMPORTANT: enables proper transactions per request
 app.use(dbContextMiddleware);
 
-// ✅ Fast health check (no DB) – used to warm up Render
+// ✅ Fast health check (no DB)
 app.get("/api/health", (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json({ ok: true, ts: Date.now() });
 });
 
-// ✅ Ready check (DB check) – helpful for debugging DB connectivity
+// ✅ Ready check (DB check)
 app.get("/api/ready", async (_req, res) => {
   try {
     await get("SELECT 1 AS one", []);
     res.setHeader("Cache-Control", "no-store");
     res.json({ ok: true, db: true, ts: Date.now() });
   } catch (e) {
-    res
-      .status(503)
-      .json({ ok: false, db: false, message: e?.message || "DB not ready" });
+    res.status(503).json({ ok: false, db: false, message: e?.message || "DB not ready" });
   }
 });
 
@@ -121,11 +117,13 @@ app.use("/api/notifications", notificationsRoutes);
 app.use("/api/quotations", quotationsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
+// ✅ NEW MODULE
+app.use("/api/certificates", certificatesRoutes);
+
 // ✅ global error handler (handles CORS errors too)
 app.use((err, _req, res, _next) => {
   console.error("UNHANDLED ERROR:", err);
 
-  // if CORS blocked, respond 403 (clear)
   if (String(err?.message || "").startsWith("CORS blocked:")) {
     return res.status(403).json({ message: err.message });
   }
@@ -139,14 +137,10 @@ app.use((err, _req, res, _next) => {
 initDb()
   .then(seedAdmin)
   .then(() => {
-    const server = app.listen(PORT, () =>
-      console.log(`Server running on port ${PORT}`)
-    );
-
-    // ✅ Helps long PDF requests / slow cold-start situations
-    server.requestTimeout = 2 * 60 * 1000; // 2 minutes
-    server.headersTimeout = 2 * 60 * 1000; // 2 minutes
-    server.keepAliveTimeout = 65 * 1000; // keep-alive
+    const server = app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    server.requestTimeout = 2 * 60 * 1000;
+    server.headersTimeout = 2 * 60 * 1000;
+    server.keepAliveTimeout = 65 * 1000;
   })
   .catch((err) => {
     console.error("DB init failed", err);

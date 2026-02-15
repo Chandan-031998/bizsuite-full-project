@@ -45,14 +45,9 @@ export const db = pool;
 
 /* -----------------------------
    Transaction-safe Context
-   (supports run("BEGIN") etc.)
 ------------------------------*/
 const als = new AsyncLocalStorage();
 
-/**
- * Add this middleware ONCE in server.js:
- * app.use(dbContextMiddleware);
- */
 export const dbContextMiddleware = (req, res, next) => {
   const ctx = { conn: null, inTx: false, cleaned: false };
 
@@ -63,7 +58,6 @@ export const dbContextMiddleware = (req, res, next) => {
 
       if (ctx.conn) {
         try {
-          // If request ended without commit/rollback, rollback safely
           if (ctx.inTx) {
             try {
               await ctx.conn.rollback();
@@ -81,7 +75,6 @@ export const dbContextMiddleware = (req, res, next) => {
 
     res.on("finish", () => void cleanup());
     res.on("close", () => void cleanup());
-
     next();
   });
 };
@@ -110,7 +103,6 @@ const ensureTxConn = async () => {
 export const run = async (sql, params = []) => {
   const q = String(sql).trim();
 
-  // Transaction commands
   if (isBegin(q)) {
     const ctx = await ensureTxConn();
     if (!ctx.inTx) {
@@ -126,7 +118,6 @@ export const run = async (sql, params = []) => {
       await ctx.conn.commit();
       ctx.inTx = false;
     }
-    // release connection after commit
     if (ctx.conn) {
       ctx.conn.release();
       ctx.conn = null;
@@ -140,7 +131,6 @@ export const run = async (sql, params = []) => {
       await ctx.conn.rollback();
       ctx.inTx = false;
     }
-    // release connection after rollback
     if (ctx.conn) {
       ctx.conn.release();
       ctx.conn = null;
@@ -148,17 +138,17 @@ export const run = async (sql, params = []) => {
     return { id: null, changes: 0 };
   }
 
-  // Normal queries
   const ctx = getCtx();
   const useTx = Boolean(ctx?.inTx && ctx?.conn);
-
   const executor = useTx ? ctx.conn : pool;
 
   const [result] = await executor.execute(q, params);
 
-  // mysql2 returns ResultSetHeader for INSERT/UPDATE/DELETE
   const isInsert = /^\s*insert\s+/i.test(q);
-  const insertId = isInsert && result && typeof result.insertId === "number" ? result.insertId : null;
+  const insertId =
+    isInsert && result && typeof result.insertId === "number"
+      ? result.insertId
+      : null;
 
   const changes =
     result && typeof result.affectedRows === "number" ? result.affectedRows : 0;
@@ -383,6 +373,27 @@ export const initDb = async () => {
       is_read TINYINT(1) DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id)
+    ) ENGINE=InnoDB;
+  `);
+
+  // ✅ CERTIFICATES (QR)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS certificates (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      token VARCHAR(64) NOT NULL UNIQUE,
+      certificate_number VARCHAR(64) NOT NULL UNIQUE,
+      student_name VARCHAR(255) NOT NULL,
+      student_email VARCHAR(255),
+      program_title VARCHAR(255) NOT NULL,
+      certificate_type VARCHAR(64) NOT NULL DEFAULT 'Course Completion',
+      issued_on DATE NOT NULL,
+      duration VARCHAR(255),
+      verify_url TEXT,
+      pdf_path TEXT,
+      created_by INT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_cert_created_by FOREIGN KEY (created_by) REFERENCES users(id)
     ) ENGINE=InnoDB;
   `);
 };

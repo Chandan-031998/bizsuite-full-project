@@ -27,6 +27,10 @@ const Sidebar = ({ open, onClose }) => {
     { to: "/crm/leads", label: "Leads / CRM", roles: ["admin", "sales"] },
     { to: "/expenses", label: "Expenses", roles: ["admin", "accounts"] },
     { to: "/tasks", label: "Tasks & Follow-ups", roles: ["admin", "accounts", "sales"] },
+
+    // ✅ NEW: Certificates QR module (Admin only)
+    { to: "/certificates", label: "Certificates (QR)", roles: ["admin"] },
+
     { to: "/admin/users", label: "Users & Roles", roles: ["admin"] },
   ].filter((i) => !role || i.roles.includes(role));
 
@@ -68,7 +72,7 @@ const Sidebar = ({ open, onClose }) => {
               key={item.to}
               to={item.to}
               className={linkClasses}
-              onClick={onClose} // close on mobile click
+              onClick={onClose}
             >
               {item.label}
             </NavLink>

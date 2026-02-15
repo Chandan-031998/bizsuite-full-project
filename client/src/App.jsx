@@ -18,41 +18,32 @@ import TasksPage from "./pages/TasksPage.jsx";
 import UsersPage from "./pages/admin/UsersPage.jsx";
 import ClientsPage from "./pages/accounts/ClientsPage.jsx";
 
-/* ===========================
-   APP LAYOUT (FIXED)
-=========================== */
+// ✅ Certificates
+import CertificatesPage from "./pages/certificates/CertificatesPage.jsx";
+import VerifyCertificatePage from "./pages/certificates/VerifyCertificatePage.jsx";
+
 const AppLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <div className="min-h-screen flex bg-slate-100 text-slate-900">
-      {/* Sidebar */}
-      <Sidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
-
-      {/* Main content */}
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
-
-        <main className="flex-1 min-w-0 overflow-y-auto">
-          {children}
-        </main>
+        <main className="flex-1 min-w-0 overflow-y-auto">{children}</main>
       </div>
     </div>
   );
 };
 
-/* ===========================
-   ROUTES
-=========================== */
 const App = () => {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
 
-      {/* Root */}
+      {/* ✅ PUBLIC VERIFY (no login required) */}
+      <Route path="/verify/:token" element={<VerifyCertificatePage />} />
+
       <Route
         path="/"
         element={
@@ -169,6 +160,18 @@ const App = () => {
           <ProtectedRoute>
             <AppLayout>
               <TasksPage />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* ✅ Certificates (admin) */}
+      <Route
+        path="/certificates"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <CertificatesPage />
             </AppLayout>
           </ProtectedRoute>
         }
