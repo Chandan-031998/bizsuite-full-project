@@ -15,28 +15,16 @@ import tasksRoutes from "./routes/tasksRoutes.js";
 import notificationsRoutes from "./routes/notificationsRoutes.js";
 import quotationsRoutes from "./routes/quotationsRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
-
-// ✅ NEW
 import certificatesRoutes from "./routes/certificatesRoutes.js";
 
 const app = express();
 
-// Use TRUST_PROXY=1 only if behind reverse proxy / cPanel
 if (String(process.env.TRUST_PROXY || "0") === "1") {
   app.set("trust proxy", 1);
 }
 
 const PORT = process.env.PORT || 4000;
 
-/**
- * ✅ CORS FIX
- * Set on Render env:
- * CORS_ORIGINS=https://accounts.vertexsoftware.in,http://localhost:5173
- *
- * - Allows exact origins from env
- * - Allows any subdomain of vertexsoftware.in
- * - Exposes Content-Disposition so browser can read PDF filename
- */
 const originsRaw = process.env.CORS_ORIGINS || process.env.CLIENT_URL || "";
 const allowedOrigins = originsRaw
   .split(",")
@@ -44,19 +32,16 @@ const allowedOrigins = originsRaw
   .filter(Boolean);
 
 const isAllowedOrigin = (origin) => {
-  if (!origin) return true; // curl/postman/server-to-server
-  if (allowedOrigins.length === 0) return true; // dev-friendly fallback
+  if (!origin) return true;
+  if (allowedOrigins.length === 0) return true;
 
   if (allowedOrigins.includes(origin)) return true;
 
-  // Allow any subdomain of vertexsoftware.in (accounts., crm., etc.)
   try {
     const u = new URL(origin);
     const host = u.hostname.toLowerCase();
     if (host === "vertexsoftware.in" || host.endsWith(".vertexsoftware.in")) return true;
-  } catch {
-    // ignore invalid origin strings
-  }
+  } catch {}
 
   return false;
 };
@@ -69,7 +54,14 @@ const corsOptions = {
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  // ✅ FIX HERE
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Public-Web-Base",
+    "X-Access-Token",
+    "X-Auth-Token",
+  ],
   exposedHeaders: ["Content-Disposition", "Content-Type"],
   maxAge: 86400,
   optionsSuccessStatus: 204,
@@ -82,16 +74,13 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use("/uploads", express.static("uploads"));
 
-// ✅ IMPORTANT: enables proper transactions per request
 app.use(dbContextMiddleware);
 
-// ✅ Fast health check (no DB)
 app.get("/api/health", (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json({ ok: true, ts: Date.now() });
 });
 
-// ✅ Ready check (DB check)
 app.get("/api/ready", async (_req, res) => {
   try {
     await get("SELECT 1 AS one", []);
@@ -103,12 +92,9 @@ app.get("/api/ready", async (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
-
-// user routes
 app.use("/api/users", usersRoutes);
 app.use("/api/admin/users", usersRoutes);
 
-// main modules
 app.use("/api/accounts", accountsRoutes);
 app.use("/api/leads", leadsRoutes);
 app.use("/api/expenses", expensesRoutes);
@@ -117,10 +103,9 @@ app.use("/api/notifications", notificationsRoutes);
 app.use("/api/quotations", quotationsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
-// ✅ NEW MODULE
+// ✅ Certificates
 app.use("/api/certificates", certificatesRoutes);
 
-// ✅ global error handler (handles CORS errors too)
 app.use((err, _req, res, _next) => {
   console.error("UNHANDLED ERROR:", err);
 

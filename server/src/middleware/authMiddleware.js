@@ -9,7 +9,7 @@ const extractToken = (req) => {
   if (authHeader && typeof authHeader === "string") {
     const parts = authHeader.split(" ");
     if (parts.length === 2 && /^Bearer$/i.test(parts[0])) return parts[1];
-    return authHeader.trim(); // if token sent without Bearer
+    return authHeader.trim();
   }
 
   const xToken = req.headers?.["x-access-token"] || req.headers?.["x-auth-token"];
@@ -31,27 +31,30 @@ export const authenticateToken = (req, res, next) => {
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) return res.status(403).json({ message: "Invalid token" });
 
-    const role =
-      user?.role ?? user?.Role ?? user?.userRole ?? user?.type ?? "user";
+    const role = user?.role ?? user?.Role ?? user?.userRole ?? user?.type ?? "user";
 
     req.user = {
       ...user,
-      role: String(role).toLowerCase(), // ✅ normalize role
+      role: String(role).toLowerCase(),
     };
 
     next();
   });
 };
 
+// alias
+export const requireAuth = authenticateToken;
+
 export const authorizeRoles = (...allowedRoles) => {
   const allowed = allowedRoles.map((r) => String(r).toLowerCase());
-
   return (req, res, next) => {
     const role = String(req.user?.role || "").toLowerCase();
-
     if (!role || !allowed.includes(role)) {
       return res.status(403).json({ message: "Forbidden: insufficient role" });
     }
     next();
   };
 };
+
+// ✅ IMPORTANT FIX: provide DEFAULT export (your routes import default)
+export default requireAuth;

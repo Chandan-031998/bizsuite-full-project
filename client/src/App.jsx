@@ -1,3 +1,4 @@
+// client/src/App.jsx
 import React, { useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { ProtectedRoute } from "./components/common/RoleGuard.jsx";
@@ -18,7 +19,7 @@ import TasksPage from "./pages/TasksPage.jsx";
 import UsersPage from "./pages/admin/UsersPage.jsx";
 import ClientsPage from "./pages/accounts/ClientsPage.jsx";
 
-// ✅ Certificates
+// Certificates
 import CertificatesPage from "./pages/certificates/CertificatesPage.jsx";
 import VerifyCertificatePage from "./pages/certificates/VerifyCertificatePage.jsx";
 
@@ -36,12 +37,12 @@ const AppLayout = ({ children }) => {
   );
 };
 
-const App = () => {
+export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
 
-      {/* ✅ PUBLIC VERIFY (no login required) */}
+      {/* ✅ PUBLIC VERIFY (mobile scan) */}
       <Route path="/verify/:token" element={<VerifyCertificatePage />} />
 
       <Route
@@ -165,11 +166,11 @@ const App = () => {
         }
       />
 
-      {/* ✅ Certificates (admin) */}
+      {/* ✅ Certificates (ADMIN ONLY) */}
       <Route
         path="/certificates"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute roles={["admin"]}>
             <AppLayout>
               <CertificatesPage />
             </AppLayout>
@@ -177,10 +178,11 @@ const App = () => {
         }
       />
 
+      {/* ✅ Users (ADMIN ONLY) */}
       <Route
         path="/admin/users"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute roles={["admin"]}>
             <AppLayout>
               <UsersPage />
             </AppLayout>
@@ -191,6 +193,4 @@ const App = () => {
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
-};
-
-export default App;
+}

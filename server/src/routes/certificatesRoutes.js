@@ -1,405 +1,414 @@
 // server/src/routes/certificatesRoutes.js
 import express from "express";
-import path from "path";
-import fs from "fs";
 import crypto from "crypto";
 import QRCode from "qrcode";
 import PDFDocument from "pdfkit";
 
-import { run, get, all } from "../db.js";
-import { authenticateToken, authorizeRoles } from "../middleware/authMiddleware.js";
+import { run, all, get } from "../db.js";
+import requireAuth from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-const UPLOAD_DIR = path.join(process.cwd(), "uploads", "certificates");
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+let ensured = false;
 
-const clean = (s) => String(s || "").trim();
-const safeFile = (s) =>
-  clean(s)
-    .replace(/[^\w\-]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 80);
+// --- Try SQLite first (your errors show SQLite binding behaviour) ---
+const CREATE_CERT_TABLE_SQLITE = `
+CREATE TABLE IF NOT EXISTS certificates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token TEXT NOT NULL UNIQUE,
+  certificate_number TEXT NOT NULL UNIQUE,
+  student_name TEXT NOT NULL,
+  student_email TEXT,
+  program_title TEXT NOT NULL,
+  certificate_type TEXT NOT NULL DEFAULT 'Course Completion',
+  issued_on TEXT NOT NULL,
+  duration TEXT,
+  verify_url TEXT,
+  pdf_path TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`;
 
-const toYMD = (v) => {
-  if (!v) return "";
-  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
-};
+// --- MySQL fallback (if you switch DB later) ---
+const CREATE_CERT_TABLE_MYSQL = `
+CREATE TABLE IF NOT EXISTS certificates (
+  id INT NOT NULL AUTO_INCREMENT,
+  token VARCHAR(64) NOT NULL,
+  certificate_number VARCHAR(64) NOT NULL,
+  student_name VARCHAR(255) NOT NULL,
+  student_email VARCHAR(255) NULL,
+  program_title VARCHAR(255) NOT NULL,
+  certificate_type VARCHAR(64) NOT NULL DEFAULT 'Course Completion',
+  issued_on DATE NOT NULL,
+  duration VARCHAR(255) NULL,
+  verify_url TEXT NULL,
+  pdf_path TEXT NULL,
+  created_by INT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_token (token),
+  UNIQUE KEY uniq_certificate_number (certificate_number),
+  KEY idx_created_by (created_by)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+`;
 
-const buildPublicBase = (req) => {
-  // BEST: explicit env (production / LAN test)
-  const envBase = clean(process.env.PUBLIC_APP_URL);
-  if (envBase) return envBase.replace(/\/+$/, "");
+async function ensureTable() {
+  if (ensured) return;
 
-  // fallback: origin from browser
-  const origin = clean(req.get("origin"));
-  if (origin) return origin.replace(/\/+$/, "");
-
-  // last fallback
-  return "http://localhost:5173";
-};
-
-async function generateCertificatePdf({
-  certificate_number,
-  token,
-  verify_url,
-  student_name,
-  student_email,
-  program_title,
-  certificate_type,
-  issued_on,
-  duration,
-}) {
-  const qrPng = await QRCode.toBuffer(verify_url, { type: "png", margin: 1, scale: 7 });
-
-  const fileName = `${safeFile(certificate_number)}_${safeFile(student_name)}.pdf`;
-  const absPath = path.join(UPLOAD_DIR, fileName);
-  const relPath = path.join("uploads", "certificates", fileName).replace(/\\/g, "/");
-
-  await new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 40 });
-
-    const out = fs.createWriteStream(absPath);
-    out.on("finish", resolve);
-    out.on("error", reject);
-
-    doc.pipe(out);
-
-    // Border
-    doc
-      .rect(25, 25, doc.page.width - 50, doc.page.height - 50)
-      .lineWidth(2)
-      .strokeColor("#2d4bd8")
-      .stroke();
-
-    // Title
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(34)
-      .fillColor("#0b1020")
-      .text("CERTIFICATE", 0, 85, { align: "center" });
-
-    doc
-      .font("Helvetica")
-      .fontSize(13)
-      .fillColor("#0b1020")
-      .text("This is to certify that", 0, 145, { align: "center" });
-
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(28)
-      .text(student_name, 0, 175, { align: "center" });
-
-    doc
-      .font("Helvetica")
-      .fontSize(13)
-      .text("has successfully completed", 0, 220, { align: "center" });
-
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(20)
-      .text(program_title, 0, 250, { align: "center" });
-
-    // Meta left
-    doc
-      .font("Helvetica")
-      .fontSize(11)
-      .fillColor("#1f2a44")
-      .text(`Type: ${certificate_type}`, 90, 345);
-
-    doc.text(`Issued On: ${issued_on}`, 90, 365);
-
-    if (student_email) doc.text(`Email: ${student_email}`, 90, 385);
-    if (duration) doc.text(`Duration: ${duration}`, 90, 405);
-
-    // QR right
-    doc.image(qrPng, doc.page.width - 190, 330, { fit: [130, 130] });
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor("#334155")
-      .text("Scan to verify", doc.page.width - 190, 465, {
-        width: 130,
-        align: "center",
-      });
-
-    // Footer
-    doc
-      .font("Helvetica")
-      .fontSize(10)
-      .fillColor("#475569")
-      .text(`Certificate No: ${certificate_number}`, 90, 510);
-
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor("#64748b")
-      .text(verify_url, 90, 528, { width: doc.page.width - 180 });
-
-    doc.end();
-  });
-
-  return { absPath, relPath, fileName };
-}
-
-/* =========================
-   ADMIN: LIST
-========================= */
-router.get(
-  "/",
-  authenticateToken,
-  authorizeRoles("admin"),
-  async (_req, res) => {
+  try {
+    await run(CREATE_CERT_TABLE_SQLITE);
+    ensured = true;
+    return;
+  } catch (e1) {
     try {
-      const rows = await all(
-        `SELECT id, token, certificate_number, student_name, student_email,
-                program_title, certificate_type, issued_on, duration, verify_url, pdf_path,
-                created_at, updated_at
-         FROM certificates
-         ORDER BY id DESC
-         LIMIT 50`
-      );
-
-      // helpful URL for frontend
-      const data = rows.map((r) => ({
-        ...r,
-        pdf_url: r.pdf_path ? `/${r.pdf_path}` : null,
-      }));
-
-      res.json(data);
-    } catch (e) {
-      res.status(500).json({ message: "Failed to load certificates", detail: e?.message });
+      await run(CREATE_CERT_TABLE_MYSQL);
+      ensured = true;
+      return;
+    } catch (e2) {
+      console.error("CERT TABLE ENSURE ERROR (sqlite):", e1?.message || e1);
+      console.error("CERT TABLE ENSURE ERROR (mysql):", e2?.message || e2);
+      throw new Error("Could not create certificates table on current DB driver.");
     }
   }
-);
+}
 
-/* =========================
-   PUBLIC: VERIFY BY TOKEN
-========================= */
+const cleanStr = (v) => {
+  if (typeof v === "undefined" || v === null) return null;
+  if (typeof v === "string") {
+    const s = v.trim();
+    return s === "" ? null : s;
+  }
+  return String(v);
+};
+
+const normalizeIssuedOn = (v) => {
+  if (!v) return null;
+
+  // yyyy-mm-dd
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+
+  // dd/mm/yyyy
+  const m = String(v).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+
+  return null;
+};
+
+const makeToken = () => crypto.randomBytes(16).toString("hex");
+
+const makeCertNumber = () => {
+  const year = new Date().getFullYear();
+  const rand = Math.floor(100000 + Math.random() * 900000);
+  return `VTX-${year}-${rand}`;
+};
+
+const userIdFromReq = (req) =>
+  req.user?.id ?? req.user?.user_id ?? req.user?.userId ?? req.user?.uid ?? null;
+
+const getPublicWebBase = (req) => {
+  return (
+    cleanStr(req.query?.public_web_base) ||
+    cleanStr(req.body?.public_web_base) ||
+    cleanStr(req.headers["x-public-web-base"]) ||
+    cleanStr(req.headers.origin) ||
+    cleanStr(process.env.PUBLIC_WEB_BASE_URL) ||
+    "http://localhost:5173"
+  );
+};
+
+async function buildPdfBuffer(cert, verifyUrl) {
+  const doc = new PDFDocument({ size: "A4", margin: 50 });
+  const chunks = [];
+  doc.on("data", (c) => chunks.push(c));
+
+  const done = new Promise((resolve, reject) => {
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+  });
+
+  // Border
+  doc.rect(30, 30, 535, 782).lineWidth(2).stroke();
+
+  doc.fontSize(24).text("Certificate", { align: "center" });
+  doc.moveDown(0.2);
+  doc.fontSize(14).fillColor("#444").text("Vertex Software", { align: "center" });
+  doc.fillColor("#000");
+  doc.moveDown(1.2);
+
+  doc.fontSize(16).text("This is to certify that", { align: "center" });
+  doc.moveDown(0.6);
+
+  doc.fontSize(22).text(cert.student_name, { align: "center" });
+  doc.moveDown(0.8);
+
+  doc.fontSize(14).text(`has successfully completed: ${cert.program_title}`, {
+    align: "center",
+  });
+  doc.moveDown(0.5);
+
+  doc.fontSize(14).text(`Certificate Type: ${cert.certificate_type}`, { align: "center" });
+  doc.moveDown(0.5);
+
+  doc.fontSize(14).text(`Issued On: ${String(cert.issued_on)}`, { align: "center" });
+
+  if (cert.duration) {
+    doc.moveDown(0.3);
+    doc.fontSize(13).text(`Duration: ${cert.duration}`, { align: "center" });
+  }
+
+  doc.moveDown(1.2);
+  doc.fontSize(12).fillColor("#444").text(`Certificate No: ${cert.certificate_number}`, {
+    align: "center",
+  });
+  doc.fillColor("#000");
+
+  const qrDataUrl = await QRCode.toDataURL(verifyUrl, {
+    errorCorrectionLevel: "M",
+    margin: 1,
+    width: 220,
+  });
+
+  const base64 = qrDataUrl.split(",")[1];
+  const qrBuf = Buffer.from(base64, "base64");
+  doc.image(qrBuf, 230, 640, { width: 120 });
+
+  doc.fontSize(10).fillColor("#555").text("Scan to verify", 0, 765, { align: "center" });
+  doc.fillColor("#000");
+
+  doc.end();
+  return done;
+}
+
+/**
+ * ✅ PUBLIC VERIFY (NO AUTH)
+ * Frontend: /verify/:token
+ * API: /api/certificates/verify/:token
+ */
 router.get("/verify/:token", async (req, res) => {
+  await ensureTable();
   try {
-    const token = clean(req.params.token);
+    const token = String(req.params.token || "").trim();
+    if (!token) return res.status(400).json({ valid: false, message: "Missing token" });
+
     const row = await get(
-      `SELECT certificate_number, student_name, student_email, program_title,
-              certificate_type, issued_on, duration, created_at
+      `SELECT id, token, certificate_number, student_name, student_email,
+              program_title, certificate_type, issued_on, duration, verify_url,
+              created_at, updated_at
        FROM certificates
-       WHERE token = ?`,
+       WHERE token = ?
+       LIMIT 1`,
       [token]
     );
 
-    res.setHeader("Cache-Control", "no-store");
+    if (!row) return res.json({ valid: false });
 
-    if (!row) {
-      return res.status(404).json({ valid: false, message: "Invalid certificate" });
-    }
-
-    return res.json({
-      valid: true,
-      message: "Valid certificate",
-      ...row,
-    });
+    return res.json({ valid: true, certificate: row });
   } catch (e) {
-    res.status(500).json({ valid: false, message: "Verify failed", detail: e?.message });
+    console.error("VERIFY ERROR:", e?.message || e);
+    return res.status(500).json({ valid: false, message: "Server error" });
   }
 });
 
-/* =========================
-   ADMIN: CREATE + PDF + QR
-========================= */
-router.post(
-  "/",
-  authenticateToken,
-  authorizeRoles("admin"),
-  async (req, res) => {
-    try {
-      const student_name = clean(req.body.student_name);
-      const program_title = clean(req.body.program_title);
-      const issued_on = toYMD(req.body.issued_on);
+// ✅ Everything below requires login
+router.use(requireAuth);
 
-      const student_email = clean(req.body.student_email);
-      const certificate_type = clean(req.body.certificate_type || "Course Completion");
-      const duration = clean(req.body.duration);
+// LIST
+router.get("/", async (_req, res) => {
+  await ensureTable();
+  try {
+    const rows = await all(
+      `SELECT id, token, certificate_number, student_name, student_email,
+              program_title, certificate_type, issued_on, duration, verify_url,
+              created_at, updated_at
+       FROM certificates
+       ORDER BY id DESC
+       LIMIT 200`
+    );
+    res.json(rows || []);
+  } catch (e) {
+    console.error("LIST ERROR:", e?.message || e);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
 
-      if (!student_name || !program_title || !issued_on) {
-        return res.status(400).json({
-          message: "student_name, program_title, issued_on are required",
-        });
-      }
+// CREATE
+router.post("/", async (req, res) => {
+  await ensureTable();
 
-      const token = crypto.randomBytes(16).toString("hex"); // 32 chars
-      const year = issued_on.slice(0, 4);
-      const certificate_number = `VTX-${year}-${token.slice(0, 8).toUpperCase()}`;
+  try {
+    const student_name = cleanStr(req.body?.student_name);
+    const student_email = cleanStr(req.body?.student_email);
+    const program_title = cleanStr(req.body?.program_title);
+    const certificate_type = cleanStr(req.body?.certificate_type) || "Course Completion";
+    const issued_on = normalizeIssuedOn(req.body?.issued_on || req.body?.issuedOn);
+    const duration = cleanStr(req.body?.duration);
 
-      const base = buildPublicBase(req);
-      const verify_url = `${base}/verify/${token}`;
+    if (!student_name || !program_title || !issued_on) {
+      return res.status(400).json({ message: "student_name, program_title, issued_on required" });
+    }
 
-      // Generate PDF (includes QR)
-      const { relPath } = await generateCertificatePdf({
-        certificate_number,
+    const token = makeToken();
+    const certificate_number = makeCertNumber();
+
+    const publicBase = getPublicWebBase(req).replace(/\/+$/, "");
+    const verify_url = `${publicBase}/verify/${token}`;
+
+    const created_by = userIdFromReq(req);
+
+    const result = await run(
+      `INSERT INTO certificates
+        (token, certificate_number, student_name, student_email, program_title, certificate_type, issued_on, duration, verify_url, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
         token,
-        verify_url,
+        certificate_number,
         student_name,
-        student_email,
+        student_email ?? null,
         program_title,
         certificate_type,
         issued_on,
-        duration,
-      });
-
-      const created_by = req.user?.id || null;
-
-      const r = await run(
-        `INSERT INTO certificates
-          (token, certificate_number, student_name, student_email, program_title, certificate_type, issued_on, duration, verify_url, pdf_path, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          token,
-          certificate_number,
-          student_name,
-          student_email || null,
-          program_title,
-          certificate_type,
-          issued_on,
-          duration || null,
-          verify_url,
-          relPath,
-          created_by,
-        ]
-      );
-
-      const row = await get(`SELECT * FROM certificates WHERE id = ?`, [r.id]);
-      res.json({ ...row, pdf_url: row.pdf_path ? `/${row.pdf_path}` : null });
-    } catch (e) {
-      res.status(500).json({ message: "Create failed", detail: e?.message });
-    }
-  }
-);
-
-/* =========================
-   ADMIN: DOWNLOAD PDF
-========================= */
-router.get(
-  "/:id/pdf",
-  authenticateToken,
-  authorizeRoles("admin"),
-  async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const row = await get(`SELECT pdf_path, certificate_number, student_name FROM certificates WHERE id = ?`, [id]);
-      if (!row || !row.pdf_path) return res.status(404).json({ message: "PDF not found" });
-
-      const abs = path.join(process.cwd(), row.pdf_path);
-      if (!fs.existsSync(abs)) return res.status(404).json({ message: "PDF missing on disk" });
-
-      const filename = `${safeFile(row.certificate_number)}_${safeFile(row.student_name)}.pdf`;
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-      fs.createReadStream(abs).pipe(res);
-    } catch (e) {
-      res.status(500).json({ message: "Download failed", detail: e?.message });
-    }
-  }
-);
-
-/* =========================
-   ADMIN: UPDATE (regenerates PDF)
-========================= */
-router.put(
-  "/:id",
-  authenticateToken,
-  authorizeRoles("admin"),
-  async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const existing = await get(`SELECT * FROM certificates WHERE id = ?`, [id]);
-      if (!existing) return res.status(404).json({ message: "Not found" });
-
-      const student_name = clean(req.body.student_name || existing.student_name);
-      const program_title = clean(req.body.program_title || existing.program_title);
-      const issued_on = toYMD(req.body.issued_on || existing.issued_on);
-
-      const student_email = clean(req.body.student_email || existing.student_email);
-      const certificate_type = clean(req.body.certificate_type || existing.certificate_type);
-      const duration = clean(req.body.duration || existing.duration);
-
-      if (!student_name || !program_title || !issued_on) {
-        return res.status(400).json({ message: "student_name, program_title, issued_on are required" });
-      }
-
-      // rebuild verify URL (important when moving from localhost to domain)
-      const base = buildPublicBase(req);
-      const verify_url = `${base}/verify/${existing.token}`;
-
-      // regenerate pdf
-      const { relPath } = await generateCertificatePdf({
-        certificate_number: existing.certificate_number,
-        token: existing.token,
+        duration ?? null,
         verify_url,
+        created_by ?? null,
+      ]
+    );
+
+    // ✅ IMPORTANT FIX: SQLite doesn't return insertId (it returns lastInsertRowid/lastID)
+    const insertedId =
+      result?.insertId ?? result?.lastInsertRowid ?? result?.lastID ?? null;
+
+    // If we don't have an id, fetch by token (safe, unique)
+    const row = insertedId
+      ? await get(
+          `SELECT id, token, certificate_number, student_name, student_email,
+                  program_title, certificate_type, issued_on, duration, verify_url,
+                  created_at, updated_at
+           FROM certificates WHERE id = ? LIMIT 1`,
+          [insertedId]
+        )
+      : await get(
+          `SELECT id, token, certificate_number, student_name, student_email,
+                  program_title, certificate_type, issued_on, duration, verify_url,
+                  created_at, updated_at
+           FROM certificates WHERE token = ? LIMIT 1`,
+          [token]
+        );
+
+    res.status(201).json(row);
+  } catch (e) {
+    console.error("CREATE ERROR:", e?.message || e);
+    res.status(500).json({ message: e?.message || "Internal Server Error" });
+  }
+});
+
+// UPDATE
+router.put("/:id", async (req, res) => {
+  await ensureTable();
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid id" });
+
+    const student_name = cleanStr(req.body?.student_name);
+    const student_email = cleanStr(req.body?.student_email);
+    const program_title = cleanStr(req.body?.program_title);
+    const certificate_type = cleanStr(req.body?.certificate_type) || "Course Completion";
+    const issued_on = normalizeIssuedOn(req.body?.issued_on || req.body?.issuedOn);
+    const duration = cleanStr(req.body?.duration);
+
+    if (!student_name || !program_title || !issued_on) {
+      return res.status(400).json({ message: "student_name, program_title, issued_on required" });
+    }
+
+    const existing = await get(`SELECT token FROM certificates WHERE id = ? LIMIT 1`, [id]);
+    if (!existing) return res.status(404).json({ message: "Not found" });
+
+    const publicBase = getPublicWebBase(req).replace(/\/+$/, "");
+    const verify_url = `${publicBase}/verify/${existing.token}`;
+
+    const now = new Date().toISOString();
+
+    await run(
+      `UPDATE certificates
+       SET student_name = ?, student_email = ?, program_title = ?,
+           certificate_type = ?, issued_on = ?, duration = ?, verify_url = ?, updated_at = ?
+       WHERE id = ?`,
+      [
         student_name,
-        student_email,
+        student_email ?? null,
         program_title,
         certificate_type,
         issued_on,
-        duration,
-      });
+        duration ?? null,
+        verify_url,
+        now,
+        id,
+      ]
+    );
 
-      await run(
-        `UPDATE certificates
-         SET student_name=?, student_email=?, program_title=?, certificate_type=?, issued_on=?, duration=?, verify_url=?, pdf_path=?
-         WHERE id=?`,
-        [
-          student_name,
-          student_email || null,
-          program_title,
-          certificate_type,
-          issued_on,
-          duration || null,
-          verify_url,
-          relPath,
-          id,
-        ]
-      );
+    const row = await get(
+      `SELECT id, token, certificate_number, student_name, student_email,
+              program_title, certificate_type, issued_on, duration, verify_url,
+              created_at, updated_at
+       FROM certificates WHERE id = ? LIMIT 1`,
+      [id]
+    );
 
-      const row = await get(`SELECT * FROM certificates WHERE id = ?`, [id]);
-      res.json({ ...row, pdf_url: row.pdf_path ? `/${row.pdf_path}` : null });
-    } catch (e) {
-      res.status(500).json({ message: "Update failed", detail: e?.message });
-    }
+    res.json(row);
+  } catch (e) {
+    console.error("UPDATE ERROR:", e?.message || e);
+    res.status(500).json({ message: e?.message || "Update failed" });
   }
-);
+});
 
-/* =========================
-   ADMIN: DELETE
-========================= */
-router.delete(
-  "/:id",
-  authenticateToken,
-  authorizeRoles("admin"),
-  async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const row = await get(`SELECT pdf_path FROM certificates WHERE id = ?`, [id]);
-      if (!row) return res.status(404).json({ message: "Not found" });
+// DELETE
+router.delete("/:id", async (req, res) => {
+  await ensureTable();
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid id" });
 
-      await run(`DELETE FROM certificates WHERE id = ?`, [id]);
-
-      // best-effort delete file
-      if (row.pdf_path) {
-        const abs = path.join(process.cwd(), row.pdf_path);
-        try {
-          if (fs.existsSync(abs)) fs.unlinkSync(abs);
-        } catch {}
-      }
-
-      res.json({ ok: true });
-    } catch (e) {
-      res.status(500).json({ message: "Delete failed", detail: e?.message });
-    }
+    await run(`DELETE FROM certificates WHERE id = ?`, [id]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE ERROR:", e?.message || e);
+    res.status(500).json({ message: e?.message || "Delete failed" });
   }
-);
+});
+
+// PDF DOWNLOAD
+router.get("/:id/pdf", async (req, res) => {
+  await ensureTable();
+
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid id" });
+
+    const cert = await get(
+      `SELECT id, token, certificate_number, student_name, student_email,
+              program_title, certificate_type, issued_on, duration, verify_url
+       FROM certificates WHERE id = ? LIMIT 1`,
+      [id]
+    );
+
+    if (!cert) return res.status(404).json({ message: "Not found" });
+
+    const publicBase = getPublicWebBase(req).replace(/\/+$/, "");
+    const verifyUrl = cleanStr(cert.verify_url) || `${publicBase}/verify/${cert.token}`;
+
+    const pdfBuffer = await buildPdfBuffer(cert, verifyUrl);
+    const safeName = String(cert.certificate_number || "certificate").replace(/[^\w\-]+/g, "_");
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeName}.pdf"`);
+
+    return res.status(200).send(pdfBuffer);
+  } catch (e) {
+    console.error("PDF ERROR:", e?.message || e);
+    return res.status(500).json({ message: e?.message || "PDF generation failed" });
+  }
+});
 
 export default router;

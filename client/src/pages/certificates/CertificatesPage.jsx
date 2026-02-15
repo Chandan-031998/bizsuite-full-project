@@ -6,10 +6,29 @@ const toDateInput = (v) => {
   if (typeof v === "string") {
     if (v.includes("T")) return v.slice(0, 10);
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
   }
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return "";
   return d.toISOString().slice(0, 10);
+};
+
+const getFilenameFromDisposition = (disposition) => {
+  if (!disposition) return null;
+
+  // filename*=UTF-8''...
+  const mStar = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(disposition);
+  if (mStar?.[1]) {
+    try {
+      return decodeURIComponent(mStar[1]);
+    } catch {
+      return mStar[1];
+    }
+  }
+
+  const m = /filename="([^"]+)"/i.exec(disposition);
+  return m?.[1] || null;
 };
 
 export default function CertificatesPage() {
@@ -28,7 +47,9 @@ export default function CertificatesPage() {
     duration: "",
   });
 
-  const [edit, setEdit] = useState(null); // certificate object
+  const [edit, setEdit] = useState(null);
+
+  const publicWebBase = window.location.origin;
 
   const load = async () => {
     setLoading(true);
@@ -36,7 +57,7 @@ export default function CertificatesPage() {
       const res = await api.get("/certificates");
       setItems(res.data || []);
     } catch (e) {
-      alert(e?.response?.data?.message || e?.message || "Failed to load certificates");
+      alert(e?.response?.data?.message || e?.response?.data?.detail || e?.message || "Failed to load");
     } finally {
       setLoading(false);
     }
@@ -46,19 +67,28 @@ export default function CertificatesPage() {
     load();
   }, []);
 
-  const verifyLinkFor = (token) => `${window.location.origin}/verify/${token}`;
+  const verifyLinkFor = (c) => c.verify_url || `${window.location.origin}/verify/${c.token}`;
 
   const onCreate = async () => {
     try {
-      setCreating(true);
-      const payload = { ...form, issued_on: toDateInput(form.issued_on) };
-      const res = await api.post("/certificates", payload);
-      await load();
+      if (!form.student_name?.trim() || !form.program_title?.trim() || !toDateInput(form.issued_on)) {
+        alert("Student Name, Title, Issued On are required");
+        return;
+      }
 
-      // open PDF download right away (optional)
-      // window.open(res.data?.pdf_url, "_blank");
+      setCreating(true);
+
+      const payload = {
+        ...form,
+        issued_on: toDateInput(form.issued_on),
+        public_web_base: publicWebBase,
+      };
+
+      await api.post("/certificates", payload);
+      setForm((p) => ({ ...p, student_name: "", student_email: "", program_title: "", duration: "" }));
+      await load();
     } catch (e) {
-      alert(e?.response?.data?.message || e?.message || "Create failed");
+      alert(e?.response?.data?.message || e?.response?.data?.detail || e?.message || "Create failed");
     } finally {
       setCreating(false);
     }
@@ -70,7 +100,7 @@ export default function CertificatesPage() {
       await api.delete(`/certificates/${id}`);
       await load();
     } catch (e) {
-      alert(e?.response?.data?.message || e?.message || "Delete failed");
+      alert(e?.response?.data?.message || e?.response?.data?.detail || e?.message || "Delete failed");
     }
   };
 
@@ -84,35 +114,55 @@ export default function CertificatesPage() {
         certificate_type: edit.certificate_type,
         issued_on: toDateInput(edit.issued_on),
         duration: edit.duration,
+        public_web_base: publicWebBase,
       };
+
       await api.put(`/certificates/${edit.id}`, payload);
       setEdit(null);
       await load();
     } catch (e) {
-      alert(e?.response?.data?.message || e?.message || "Update failed");
+      alert(e?.response?.data?.message || e?.response?.data?.detail || e?.message || "Update failed");
     }
   };
 
-  const downloadPdf = async (id, certificate_number, student_name) => {
-    const res = await api.get(`/certificates/${id}/pdf`, {
-      responseType: "blob",
-      timeout: 120000,
-      headers: { Accept: "application/pdf" },
-    });
+  const downloadPdf = async (c) => {
+    try {
+      const res = await api.get(`/certificates/${c.id}/pdf`, {
+        responseType: "blob",
+        timeout: 120000,
+        params: { public_web_base: publicWebBase },
+        headers: { Accept: "application/pdf" },
+      });
 
-    const blob = new Blob([res.data], { type: "application/pdf" });
-    const url = window.URL.createObjectURL(blob);
+      const contentType = res.headers?.["content-type"] || "";
+      if (contentType.includes("application/json")) {
+        const txt = await res.data.text();
+        try {
+          const j = JSON.parse(txt);
+          throw new Error(j.message || j.detail || "PDF failed");
+        } catch {
+          throw new Error(txt || "PDF failed");
+        }
+      }
 
-    const filename = `${certificate_number || "Certificate"}_${student_name || id}.pdf`;
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
 
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+      const filename =
+        getFilenameFromDisposition(res.headers?.["content-disposition"]) ||
+        `${c.certificate_number || "Certificate"}_${(c.student_name || c.id).replace(/\s+/g, "_")}.pdf`;
 
-    setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      alert(e?.message || e?.response?.data?.message || e?.response?.data?.detail || "PDF download failed");
+    }
   };
 
   const sorted = useMemo(() => items, [items]);
@@ -122,11 +172,10 @@ export default function CertificatesPage() {
       <div className="mb-4">
         <div className="text-xl font-semibold">Certificates (QR Generator)</div>
         <div className="text-sm text-slate-500">
-          Generate PDF certificate with embedded QR → QR opens Verify page.
+          Generate PDF certificate with embedded QR → QR opens Verify page (public).
         </div>
       </div>
 
-      {/* Create */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
@@ -211,7 +260,6 @@ export default function CertificatesPage() {
         </div>
       </div>
 
-      {/* List */}
       <div className="mt-5 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
         <div className="flex items-center justify-between">
           <div className="text-base font-semibold">Recent Certificates</div>
@@ -219,9 +267,7 @@ export default function CertificatesPage() {
         </div>
 
         <div className="mt-3 space-y-3">
-          {!loading && sorted.length === 0 && (
-            <div className="text-sm text-slate-500">No certificates yet.</div>
-          )}
+          {!loading && sorted.length === 0 && <div className="text-sm text-slate-500">No certificates yet.</div>}
 
           {sorted.map((c) => (
             <div
@@ -235,22 +281,20 @@ export default function CertificatesPage() {
                 <div className="text-sm text-slate-600">
                   {c.program_title} · {c.certificate_type} · Issued: {toDateInput(c.issued_on)}
                 </div>
-                <div className="text-xs text-slate-500">
-                  Verify: {verifyLinkFor(c.token)}
-                </div>
+                <div className="text-xs text-slate-500">Verify: {verifyLinkFor(c)}</div>
               </div>
 
               <div className="flex gap-2 flex-wrap">
                 <button
                   className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium hover:bg-slate-50"
-                  onClick={() => navigator.clipboard.writeText(verifyLinkFor(c.token))}
+                  onClick={() => navigator.clipboard.writeText(verifyLinkFor(c))}
                 >
                   Copy Link
                 </button>
 
                 <button
                   className="px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-medium hover:opacity-95"
-                  onClick={() => downloadPdf(c.id, c.certificate_number, c.student_name)}
+                  onClick={() => downloadPdf(c)}
                 >
                   Download PDF
                 </button>
@@ -274,7 +318,6 @@ export default function CertificatesPage() {
         </div>
       </div>
 
-      {/* Edit Modal */}
       {edit && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
           <div className="w-full max-w-xl bg-white rounded-2xl border border-slate-200 shadow p-4">
@@ -350,11 +393,8 @@ export default function CertificatesPage() {
             </div>
 
             <div className="mt-4 flex gap-2">
-              <button
-                onClick={onUpdate}
-                className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium"
-              >
-                Save (Regenerate PDF + QR)
+              <button onClick={onUpdate} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium">
+                Save
               </button>
               <button
                 onClick={() => setEdit(null)}
@@ -364,9 +404,7 @@ export default function CertificatesPage() {
               </button>
             </div>
 
-            <div className="mt-3 text-xs text-slate-500">
-              Note: Save will regenerate PDF so the QR becomes correct for mobile scanning.
-            </div>
+            <div className="mt-3 text-xs text-slate-500">Note: QR in PDF uses your deployed domain automatically.</div>
           </div>
         </div>
       )}
